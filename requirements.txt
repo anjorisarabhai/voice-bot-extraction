@@ -1,7 +1,15 @@
 # requirements.txt
-# requirements.txt
+# --- Core LLM/Hybrid Logic ---
 langchain==0.2.7
 pydantic==2.5.3
 requests
-transformers
 python-dotenv
+
+# --- Local LLM & Setup (For legacy comparison/local testing) ---
+langchain-community 
+
+# --- ASR, TTS, and Audio Handling ---
+openai-whisper         # For Speech-to-Text (ASR)
+TTS                    # For Text-to-Speech (TTS)
+torchaudio             # PyTorch utilities for audio processing
+soundfile              # To read and write audio file properties (like duration for latency)
