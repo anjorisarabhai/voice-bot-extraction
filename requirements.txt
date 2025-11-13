@@ -1,9 +1,7 @@
 # requirements.txt
+# requirements.txt
 langchain==0.2.7
-pydantic==2.5.3  # Pinned for stability with model_fields/model_dump
+pydantic==2.5.3
 requests
 transformers
 python-dotenv
-# Ollama and optional local dependencies
-# langchain-community is needed for ChatOllama
-langchain-community

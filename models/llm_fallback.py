@@ -4,44 +4,14 @@ import requests
 import json
 import re
 from datetime import datetime
-from langchain_core.prompts import PromptTemplate
-from langchain_community.chat_models import ChatOllama
-from models.schema import VisitDetails
-from config import MERCURY_API_KEY, MERCURY_API_ENDPOINT, OLLAMA_URL, LLAMA3_MODEL
+from models.schema import VisitDetails # Fine
+from config import MERCURY_API_KEY, MERCURY_API_ENDPOINT
 
-# --- Llama 3 (Ollama) Function (Used for comparison) ---
-def extract_via_llama_fallback(transcript: str):
-    """Runs the Llama 3 LLM for structured data extraction (Slow Path Proxy)."""
-    raw_output_string = ""
-    llm_start = time.time()
-    
-    try:
-        current_date = datetime.now().strftime("%Y-%m-%d")
-        
-        template = """SYSTEM INSTRUCTIONS: You are an expert CRM data extractor. Extract information strictly to YYYY-MM-DD and HH:MM format. If any field is missing, set its value to 'N/A'. USER TRANSCRIPT: {transcript} RESPONSE:"""
-        prompt = PromptTemplate(template=template, input_variables=["transcript", "current_date"])
-
-        llm = ChatOllama(model=LLAMA3_MODEL, base_url=OLLAMA_URL, format="json", temperature=0)
-        chain = prompt | llm
-        
-        raw_output_message = chain.invoke({"transcript": transcript, "current_date": current_date})
-        raw_output_string = raw_output_message.content 
-        
-        extracted_json = json.loads(raw_output_string)
-        result = VisitDetails.model_validate(extracted_json)
-        
-        llama_latency = time.time() - llm_start 
-        return result.model_dump(), llama_latency
-    
-    except Exception:
-        llama_latency = time.time() - llm_start
-        return None, llama_latency
-
-
-# --- Mercury (dLLM) Function (Used for production Fallback and Comparison) ---
+# --- Mercury (dLLM) Function (The Production Fallback) ---
 def extract_via_mercury_fallback(transcript: str):
     """
-    Runs the Mercury dLLM API using the Tool Calling method (Final Production Fallback).
+    Runs the Mercury dLLM API using the Tool Calling method for structured output.
+    This is the production fallback path.
     """
     llm_start = time.time()
     current_date = datetime.now().strftime("%Y-%m-%d")
@@ -87,7 +57,6 @@ def extract_via_mercury_fallback(transcript: str):
         tool_call_args_str = raw_output['choices'][0]['message']['tool_calls'][0]['function']['arguments']
         
         # 2. ULTIMATE DEFENSE STEP: Target the specific malformed JSON syntax
-        # This fixes the recurring error caused by the API inserting extra spaces/quotes.
         cleaned_args_str = tool_call_args_str.replace(':" "', ':"') 
         cleaned_args_str = re.sub(r',\s*', ',', cleaned_args_str)
         cleaned_args_str = re.sub(r'\s*:\s*', ':', cleaned_args_str)
