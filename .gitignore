@@ -6,3 +6,4 @@ config/settings.py
 mercury_key.txt
 *.wav
 *.mp3
+.env
