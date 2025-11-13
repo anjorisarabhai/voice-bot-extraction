@@ -1,16 +1,29 @@
 # main.py
 import time
 import json
-from models.nlp_core import run_nlp_fast_path # <-- This import is fine now
-from models.llm_fallback import extract_via_mercury_fallback
+import os
+import sys
+from datetime import datetime
 
-# --- CORE HYBRID EXTRACTION PIPELINE (Production Ready) ---
+# Add the project root to the path for absolute imports
+# This ensures imports like 'from models.nlp_core import ...' work correctly.
+sys.path.append(os.path.dirname(__file__))
+
+# Import core components and settings from the local modules
+from models.nlp_core import run_nlp_fast_path
+from models.llm_fallback import extract_via_mercury_fallback
+from models.schema import VisitDetails 
+
+
+# --- CORE HYBRID EXTRACTION PIPELINE ---
+
 def run_hybrid_extraction_pipeline(transcript: str):
     """
     The central logic using the fast NLP path with Mercury as the production fallback.
     """
     
     # 1. Attempt FAST PATH (NLP)
+    # This function returns None if the input contains temporal keywords or fails basic checks.
     nlp_data, nlp_latency = run_nlp_fast_path(transcript)
     
     if nlp_data:
@@ -38,27 +51,92 @@ def run_hybrid_extraction_pipeline(transcript: str):
     }
     return metrics
 
-# --- EXAMPLE EXECUTION (Demonstration) ---
+# --- TEST CASE HANDLER ---
 
+def get_benchmark_tests():
+    """Loads benchmark tests from the JSON file."""
+    # Construct the path relative to the script's execution
+    test_file_path = os.path.join(os.path.dirname(__file__), 'tests', 'test_cases.json')
+    
+    try:
+        with open(test_file_path, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"ERROR: Test case file not found at {test_file_path}")
+        return []
+    except json.JSONDecodeError:
+        print("ERROR: Failed to decode JSON from test case file. Check syntax.")
+        return []
+
+# --- MAIN EXECUTION LOOP ---
 if __name__ == "__main__":
+    TEST_CASES = get_benchmark_tests()
+    FINAL_REPORT = []
     
-    # Example 1: FAST PATH TEST (No time keywords)
-    fast_transcript = "Schedule a business visit with Mr. George to discuss final signatures."
-    print(f"\n--- Running FAST TEST: {fast_transcript[:40]}... ---")
-    fast_metrics = run_hybrid_extraction_pipeline(fast_transcript)
-    
-    # Example 2: SLOW PATH TEST (Complex time keyword)
-    slow_transcript = "Schedule a business visit with Dr. Patel for tomorrow at 2 PM."
-    print(f"\n--- Running SLOW TEST: {slow_transcript[:40]}... ---")
-    slow_metrics = run_hybrid_extraction_pipeline(slow_transcript)
-    
-    print("\n\n--- FINAL HYBRID PIPELINE DEMO ---")
-    print("-----------------------------------")
-    
-    # Report Fast Path
-    print(f"1. FAST PATH | Method: {fast_metrics['method']} | Latency: {fast_metrics['latency_sec']:.4f}s")
-    print(f"   Data: {fast_metrics['data'].get('lead_name', 'N/A')} - {fast_metrics['data'].get('date', 'N/A')}")
+    if not TEST_CASES:
+        print("Aborting benchmark: No test cases loaded. Ensure tests/test_cases.json exists.")
+        # We exit with a non-zero code to indicate failure
+        sys.exit(1)
+        
+    print(f"\n--- Running FINAL {len(TEST_CASES)}-CASE BENCHMARK ---")
 
-    # Report Slow Path
-    print(f"2. SLOW PATH | Method: {slow_metrics['method']} | Latency: {slow_metrics['latency_sec']:.4f}s")
-    print(f"   Data: {slow_metrics['data'].get('lead_name', 'N/A')} - {slow_metrics['data'].get('date', 'N/A')}")
+    for i, test_case in enumerate(TEST_CASES): 
+        transcript = test_case['transcript']
+        print(f"[Test {i+1}/{len(TEST_CASES)}]: {transcript[:60]}...")
+
+        # Run the Hybrid Pipeline
+        metrics = run_hybrid_extraction_pipeline(transcript)
+        
+        # Log the result
+        FINAL_REPORT.append({
+            "Test_ID": test_case.get('id', i + 1), # Use 'id' from JSON or index
+            "Transcript": transcript,
+            "Extraction_Method": metrics["method"],
+            "Success": metrics["success"],
+            "Latency_sec": metrics["latency_sec"],
+            "Data": metrics["data"],
+        })
+    
+    # --- FINAL REPORT GENERATION ---
+    print("\n\n#####################################################")
+    print("##### FINAL 15-CASE DATA EXTRACTION REPORT #####")
+    print("#####################################################")
+
+    columns = ["Test_ID", "Extraction_Method", "Success", "Latency_sec", "Transcript", 
+               "Lead_Name", "Visit_Type", "Date", "Start_Time", "Email", "Phone"]
+    print("\t".join(columns))
+    print("---------------------------------------------------------------------------------------------------------------------------------")
+
+    for entry in FINAL_REPORT:
+        data = entry["Data"]
+        
+        # --- CRITICAL FIX: Defensive Reporting Check ---
+        if data is None:
+            # If data is None (LLM failed), use a placeholder for all fields
+            row_data = [
+                str(entry["Test_ID"]),
+                entry["Extraction_Method"],
+                str(entry["Success"]),
+                f"{entry['Latency_sec']:.4f}",
+                entry["Transcript"],
+                "API_FAILURE", # Explicitly mark the failure
+                "N/A", "N/A", "N/A", "N/A", "N/A"
+            ]
+        else:
+            # Normal processing if data is a valid dictionary
+            row_data = [
+                str(entry["Test_ID"]),
+                entry["Extraction_Method"],
+                str(entry["Success"]),
+                f"{entry['Latency_sec']:.4f}",
+                entry["Transcript"],
+                data.get("lead_name", "N/A"),
+                data.get("visit_type", "N/A"),
+                data.get("date", "N/A"),
+                data.get("start_time", "N/A"),
+                data.get("email", "N/A"),
+                data.get("phone_number", "N/A"),
+            ]
+        print("\t".join(row_data))
+
+    print("---------------------------------------------------------------------------------------------------------------------------------")

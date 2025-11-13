@@ -1,0 +1,77 @@
+[
+  {
+    "id": 1,
+    "transcript": "Schedule a business visit with Mr. George to discuss final signatures.",
+    "expected_method": "NLP_RULES"
+  },
+  {
+    "id": 2,
+    "transcript": "Book an operation meeting with John Smith regarding paperwork review.",
+    "expected_method": "NLP_RULES"
+  },
+  {
+    "id": 3,
+    "transcript": "Visit Lisa Nguyen for a business matter.",
+    "expected_method": "NLP_RULES"
+  },
+  {
+    "id": 4,
+    "transcript": "Schedule a visit with Dr. Smith regarding the new fee structure.",
+    "expected_method": "NLP_RULES"
+  },
+  {
+    "id": 5,
+    "transcript": "Book an operation with Anjori Sarabhai to close the account.",
+    "expected_method": "NLP_RULES"
+  },
+  {
+    "id": 6,
+    "transcript": "Arrange a business appointment for Ms. Taylor.",
+    "expected_method": "NLP_RULES"
+  },
+  {
+    "id": 7,
+    "transcript": "Schedule a business visit with James Brown and Mark Cuban.",
+    "expected_method": "NLP_RULES"
+  },
+  {
+    "id": 8,
+    "transcript": "Schedule a visit with Dr. Patel for tomorrow at 2 PM.",
+    "expected_method": "MERCURY_dLLM"
+  },
+  {
+    "id": 9,
+    "transcript": "Book an operation visit with Tom Harris next week on Wednesday.",
+    "expected_method": "MERCURY_dLLM"
+  },
+  {
+    "id": 10,
+    "transcript": "Make a CRM visit with Jane Smith on Dec 20th at 10:30 AM.",
+    "expected_method": "MERCURY_dLLM"
+  },
+  {
+    "id": 11,
+    "transcript": "Operation visit with David Kim at 4 PM today.",
+    "expected_method": "MERCURY_dLLM"
+  },
+  {
+    "id": 12,
+    "transcript": "Arrange a business meeting with Michael Brown 30 minutes later.",
+    "expected_method": "MERCURY_dLLM"
+  },
+  {
+    "id": 13,
+    "transcript": "Schedule a visit with Emily Chen for the 5th of December.",
+    "expected_method": "MERCURY_dLLM"
+  },
+  {
+    "id": 14,
+    "transcript": "Book a business visit with Rahul for the last Friday of the month.",
+    "expected_method": "MERCURY_dLLM"
+  },
+  {
+    "id": 15,
+    "transcript": "Visit with James Brown on the 20th of November.",
+    "expected_method": "MERCURY_dLLM"
+  }
+]
