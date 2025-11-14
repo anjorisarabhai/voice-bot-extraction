@@ -10,6 +10,10 @@ langchain-community
 
 # --- ASR, TTS, and Audio Handling ---
 openai-whisper         # For Speech-to-Text (ASR)
-TTS                    # For Text-to-Speech (TTS)
+#TTS                    # For Text-to-Speech (TTS)
 torchaudio             # PyTorch utilities for audio processing
 soundfile              # To read and write audio file properties (like duration for latency)
+
+espnet
+huggingface-hub
+#ai4bharat-transliteration

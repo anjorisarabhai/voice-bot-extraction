@@ -1,53 +1,105 @@
 # models/demo_utils.py
-import torch
-import torchaudio
-import whisper
 import time
 import os
 import soundfile as sf
-from TTS.api import TTS
+import warnings
+import re
+import requests 
 
-# --- ASR MODEL (WHISPER) ---
-def setup_whisper_model(model_size="medium"):
-    """Initializes and returns the Whisper ASR model."""
-    asr_device = "cuda" if torch.cuda.is_available() else "cpu"
-    try:
-        # Load Whisper model (medium for best balance if available)
-        whisper_model = whisper.load_model(model_size, device=asr_device)
-        return whisper_model, asr_device
-    except Exception as e:
-        print(f" Whisper Model Load Failed: {e}. Falling back to 'small'.")
-        return whisper.load_model("small", device=asr_device), asr_device
+# Cloud/Service Clients
+from huggingface_hub import InferenceClient
+from indic_transliteration.sanscript import transliterate, ITRANS # Core Transliteration Logic
+from config import HF_API_TOKEN # Imports the secure token from config
 
-def run_asr_on_file(filename: str, whisper_model, asr_device):
-    """
-    Transcribes audio from the specified file located in the tests/sample_audio directory.
+# --- CONFIGURATION ---
+ASR_MODEL_ID = "facebook/wav2vec2-base-960h" 
+HF_API_BASE_URL = "https://api-inference.huggingface.co/models"
+# --- END CONFIGURATION ---
+
+# --- GLOBAL SETUP DICTIONARY ---
+DEMO_ASSETS = {}
+
+
+# --- CORE UTILITIES ---
+
+def setup_demo_assets():
+    """Initializes clients and checks token availability."""
     
-    Args:
-        filename (str): The name of the audio file (e.g., 'command.wav').
-    """
-    # CRITICAL FIX: Construct the absolute path from the project root.
-    # We navigate two levels up from 'models' to the project root, then down to 'tests/sample_audio'.
+    global DEMO_ASSETS
     
-    # Get the directory of the current script (models/demo_utils.py)
+    # 1. ASR Client Setup (Checks Token Security)
+    if HF_API_TOKEN and HF_API_TOKEN != "PLACEHOLDER_FOR_SECURITY_CHECK":
+        DEMO_ASSETS['asr_available'] = True
+        print(" Hugging Face ASR Setup Initialized.")
+    else:
+        print(" CRITICAL ERROR: HF API Token is missing or invalid. Check your .env file.")
+        DEMO_ASSETS['asr_available'] = False
+        return DEMO_ASSETS
+
+    # 2. Transliteration Setup 
+    DEMO_ASSETS['xlit_engine_available'] = True
+    print(" Indic Transliteration Logic Initialized.")
+    
+    # 3. TTS Model (Disabled)
+    DEMO_ASSETS['tts_available'] = False
+    print(" TTS functionality disabled due to system download issues.")
+
+    return DEMO_ASSETS
+
+
+# --- TRANSLITERATION FUNCTION (Logic used for Indian Name Accuracy) ---
+
+def normalize_transcript_names(transcript: str):
+    """
+    Identifies capitalized words and standardizes their Romanized spelling 
+    using the indic-transliteration library.
+    """
+    if not DEMO_ASSETS.get('xlit_engine_available'):
+        return transcript
+
+    words = transcript.split()
+    normalized_words = []
+    
+    SRC_SCHEME = ITRANS 
+    TGT_SCHEME = ITRANS 
+
+    for word in words:
+        # Heuristic: Only target capitalized words that look like names
+        if word[0].isupper() and len(word) > 2 and re.match(r'^[A-Za-z]+$', word):
+            try:
+                # Use the simple, direct transliterate function
+                normalized_word = transliterate(word, SRC_SCHEME, TGT_SCHEME)
+                
+                if normalized_word and re.match(r'^[A-Za-z\s]+$', normalized_word):
+                     normalized_words.append(normalized_word.capitalize())
+                     continue
+            except Exception:
+                pass 
+
+        normalized_words.append(word)
+        
+    return " ".join(normalized_words)
+
+
+# --- ASR FUNCTION (FIXED: Direct Requests Call) ---
+
+def run_asr_on_file(filename: str, assets: dict):
+    """
+    Transcribes audio from a file path using a direct HTTPS call to the 
+    Hugging Face Inference API and applies Transliteration.
+    """
+    if not assets.get('asr_available'):
+        return f"ERROR: ASR Client not initialized.", 0.0, 0.0, 0.0
+
+    # 1. Path construction
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # Path construction: project_root/tests/sample_audio/filename
-    audio_file_path = os.path.join(
-        script_dir,
-        os.pardir,  # Moves up to the 'voice-bot-extraction' root
-        "tests",
-        "sample_audio",
-        filename
-    )
-    
-    # Normalize the path to handle cross-platform issues
-    audio_file_path = os.path.normpath(audio_file_path)
+    audio_file_path = os.path.normpath(os.path.join(
+        script_dir, os.pardir, "tests", "sample_audio", filename
+    ))
 
-    if whisper_model is None or not os.path.exists(audio_file_path):
-        print(f"ERROR: Audio file not found at {audio_file_path}")
-        return "ERROR", 0.0, 0.0, 0.0 # Added audio_duration to return 4 items
-
+    if not os.path.exists(audio_file_path):
+        return f"ERROR: File not found at {audio_file_path}", 0.0, 0.0, 0.0
+    
     # Get audio duration
     try:
         audio_info = sf.info(audio_file_path)
@@ -56,39 +108,43 @@ def run_asr_on_file(filename: str, whisper_model, asr_device):
         audio_duration = 0.0
         
     start_time = time.time()
-    result = whisper_model.transcribe(audio_file_path, fp16=(asr_device == "cuda"))
-    latency_sec = time.time() - start_time
-    transcript = result["text"].strip()
     
-    return transcript, latency_sec, audio_duration, audio_duration # Return the expected 4 items (transcript, latency, rtf, duration)
-
-
-# --- TTS MODEL (SILERO) ---
-def setup_tts_model():
-    """Initializes and returns the Silero TTS model and related components."""
-    tts_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     try:
-        model_id = 'silero_tts'
-        language = 'en'
-        speaker = 'lj_16khz'
-        # Load the model from PyTorch Hub
-        model, symbols, sample_rate, example_text, apply_tts = torch.hub.load(
-            repo_or_dir='snakers4/silero-models',
-            model=model_id,
-            language=language,
-            speaker=speaker
-        )
-        model = model.to(tts_device)
-        return model, sample_rate, apply_tts
-    except Exception as e:
-        print(f" Silero TTS Model Load Failed: {e}. TTS functionality unavailable.")
-        return None, None, None
+        headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
+        API_URL = f"{HF_API_BASE_URL}/{ASR_MODEL_ID}"
 
-def generate_voice_confirmation(extracted_data_json: dict, tts_components, output_path: str = "/tmp/confirmation_output.wav"):
-    """Generates a voice confirmation based on the successful JSON extraction."""
-    model, sample_rate, apply_tts = tts_components
-    if model is None: return None
+        with open(audio_file_path, "rb") as audio_file:
+            audio_bytes = audio_file.read()
+
+        # CRITICAL FIX: Direct POST request using the robust requests library
+        response = requests.post(
+            API_URL,
+            headers=headers,
+            data=audio_bytes,
+            timeout=30 # Set a timeout
+        )
+        response.raise_for_status() # Raise error for bad status codes
+
+        response_json = response.json()
+        raw_transcript = response_json.get('text', '').strip()
         
+        latency_sec = time.time() - start_time
+        
+        # 2. Apply Transliteration (Name Normalization)
+        final_transcript = normalize_transcript_names(raw_transcript)
+        
+        return final_transcript, latency_sec, audio_duration, audio_duration
+    
+    except Exception as e:
+        latency_sec = time.time() - start_time
+        return f"ERROR: API Call Failed. {e}", latency_sec, audio_duration, audio_duration
+
+
+# --- TTS FUNCTION (Disabled) ---
+
+def generate_voice_confirmation(extracted_data_json: dict, assets: dict, output_path: str = "/tmp/confirmation_output.wav"):
+    """Generates a text confirmation as TTS functionality is disabled."""
+    
     lead_name = extracted_data_json.get("lead_name", "the client")
     visit_type = extracted_data_json.get("visit_type", "meeting")
     date = extracted_data_json.get("date", "N/A")
@@ -98,6 +154,5 @@ def generate_voice_confirmation(extracted_data_json: dict, tts_components, outpu
         f"Processing used the {extracted_data_json.get('extraction_method', 'AI')} path."
     )
     
-    audio_tensor = apply_tts(texts=[confirmation_message], model=model, sample_rate=sample_rate, symbols=model.symbols, device=model.device)[0]
-    torchaudio.save(output_path, audio_tensor.unsqueeze(0).cpu(), sample_rate=sample_rate)
-    return output_path
+    print(f"Bot Confirmation: {confirmation_message}")
+    return confirmation_message # Returns text instead of file path
