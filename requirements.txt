@@ -17,3 +17,5 @@ soundfile              # To read and write audio file properties (like duration 
 espnet
 huggingface-hub
 #ai4bharat-transliteration
+
+soxr

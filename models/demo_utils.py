@@ -1,158 +1,104 @@
-# models/demo_utils.py
-import time
 import os
-import soundfile as sf
-import warnings
+import time
 import re
-import requests 
+import torch
+import soundfile as sf
 
-# Cloud/Service Clients
-from huggingface_hub import InferenceClient
-from indic_transliteration.sanscript import transliterate, ITRANS # Core Transliteration Logic
-from config import HF_API_TOKEN # Imports the secure token from config
-
-# --- CONFIGURATION ---
-ASR_MODEL_ID = "facebook/wav2vec2-base-960h" 
-HF_API_BASE_URL = "https://api-inference.huggingface.co/models"
-# --- END CONFIGURATION ---
+from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
 
 # --- GLOBAL SETUP DICTIONARY ---
 DEMO_ASSETS = {}
 
-
 # --- CORE UTILITIES ---
 
 def setup_demo_assets():
-    """Initializes clients and checks token availability."""
-    
+    """Load ASR model and processor for local inference, set transliteration flag."""
     global DEMO_ASSETS
-    
-    # 1. ASR Client Setup (Checks Token Security)
-    if HF_API_TOKEN and HF_API_TOKEN != "PLACEHOLDER_FOR_SECURITY_CHECK":
+    try:
+        DEMO_ASSETS['asr_processor'] = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base")
+        DEMO_ASSETS['asr_model'] = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base")
         DEMO_ASSETS['asr_available'] = True
-        print(" Hugging Face ASR Setup Initialized.")
-    else:
-        print(" CRITICAL ERROR: HF API Token is missing or invalid. Check your .env file.")
+        print(" Hugging Face Wav2Vec2 ASR Model Loaded Locally.")
+    except Exception as e:
+        print(f" ERROR loading ASR model: {e}")
         DEMO_ASSETS['asr_available'] = False
-        return DEMO_ASSETS
 
-    # 2. Transliteration Setup 
     DEMO_ASSETS['xlit_engine_available'] = True
     print(" Indic Transliteration Logic Initialized.")
-    
-    # 3. TTS Model (Disabled)
+
     DEMO_ASSETS['tts_available'] = False
     print(" TTS functionality disabled due to system download issues.")
 
     return DEMO_ASSETS
 
-
-# --- TRANSLITERATION FUNCTION (Logic used for Indian Name Accuracy) ---
-
+# --- TRANSLITERATION FUNCTION ---
 def normalize_transcript_names(transcript: str):
-    """
-    Identifies capitalized words and standardizes their Romanized spelling 
-    using the indic-transliteration library.
-    """
     if not DEMO_ASSETS.get('xlit_engine_available'):
         return transcript
 
     words = transcript.split()
     normalized_words = []
-    
-    SRC_SCHEME = ITRANS 
-    TGT_SCHEME = ITRANS 
+    SRC_SCHEME = 'itrans'
+    TGT_SCHEME = 'itrans'
 
     for word in words:
-        # Heuristic: Only target capitalized words that look like names
         if word[0].isupper() and len(word) > 2 and re.match(r'^[A-Za-z]+$', word):
-            try:
-                # Use the simple, direct transliterate function
-                normalized_word = transliterate(word, SRC_SCHEME, TGT_SCHEME)
-                
-                if normalized_word and re.match(r'^[A-Za-z\s]+$', normalized_word):
-                     normalized_words.append(normalized_word.capitalize())
-                     continue
-            except Exception:
-                pass 
+            normalized_words.append(word.capitalize())
+        else:
+            normalized_words.append(word)
 
-        normalized_words.append(word)
-        
     return " ".join(normalized_words)
 
-
-# --- ASR FUNCTION (FIXED: Direct Requests Call) ---
-
+# --- ASR FUNCTION (Using Local Model) ---
 def run_asr_on_file(filename: str, assets: dict):
-    """
-    Transcribes audio from a file path using a direct HTTPS call to the 
-    Hugging Face Inference API and applies Transliteration.
-    """
+    """Transcribe audio file locally using wav2vec2 model and processor."""
     if not assets.get('asr_available'):
-        return f"ERROR: ASR Client not initialized.", 0.0, 0.0, 0.0
+        return "ERROR: ASR Model not initialized.", 0.0, 0.0, 0.0
 
-    # 1. Path construction
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    audio_file_path = os.path.normpath(os.path.join(
-        script_dir, os.pardir, "tests", "sample_audio", filename
-    ))
+    audio_file_path = os.path.normpath(os.path.join(script_dir, os.pardir, "tests", "sample_audio", filename))
 
     if not os.path.exists(audio_file_path):
         return f"ERROR: File not found at {audio_file_path}", 0.0, 0.0, 0.0
-    
-    # Get audio duration
+
     try:
-        audio_info = sf.info(audio_file_path)
-        audio_duration = audio_info.duration
+        speech, sampling_rate = sf.read(audio_file_path)
+        audio_duration = len(speech) / sampling_rate
     except Exception:
         audio_duration = 0.0
-        
+
+    processor = assets['asr_processor']
+    model = assets['asr_model']
+
     start_time = time.time()
-    
+
     try:
-        headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
-        API_URL = f"{HF_API_BASE_URL}/{ASR_MODEL_ID}"
+        input_values = processor(speech, sampling_rate=sampling_rate, return_tensors="pt").input_values
+        with torch.no_grad():
+            logits = model(input_values).logits
 
-        with open(audio_file_path, "rb") as audio_file:
-            audio_bytes = audio_file.read()
+        predicted_ids = torch.argmax(logits, dim=-1)
+        transcription = processor.decode(predicted_ids[0])
 
-        # CRITICAL FIX: Direct POST request using the robust requests library
-        response = requests.post(
-            API_URL,
-            headers=headers,
-            data=audio_bytes,
-            timeout=30 # Set a timeout
-        )
-        response.raise_for_status() # Raise error for bad status codes
+        latency = time.time() - start_time
 
-        response_json = response.json()
-        raw_transcript = response_json.get('text', '').strip()
-        
-        latency_sec = time.time() - start_time
-        
-        # 2. Apply Transliteration (Name Normalization)
-        final_transcript = normalize_transcript_names(raw_transcript)
-        
-        return final_transcript, latency_sec, audio_duration, audio_duration
-    
+        final_transcript = normalize_transcript_names(transcription)
+
+        return final_transcript, latency, audio_duration, audio_duration
     except Exception as e:
-        latency_sec = time.time() - start_time
-        return f"ERROR: API Call Failed. {e}", latency_sec, audio_duration, audio_duration
-
+        latency = time.time() - start_time
+        return f"ERROR: ASR Local Inference Failed. {e}", latency, audio_duration, audio_duration
 
 # --- TTS FUNCTION (Disabled) ---
-
 def generate_voice_confirmation(extracted_data_json: dict, assets: dict, output_path: str = "/tmp/confirmation_output.wav"):
-    """Generates a text confirmation as TTS functionality is disabled."""
-    
     lead_name = extracted_data_json.get("lead_name", "the client")
     visit_type = extracted_data_json.get("visit_type", "meeting")
     date = extracted_data_json.get("date", "N/A")
-    
+
     confirmation_message = (
         f"Success! The {visit_type} visit with {lead_name} is scheduled for {date}. "
         f"Processing used the {extracted_data_json.get('extraction_method', 'AI')} path."
     )
-    
+
     print(f"Bot Confirmation: {confirmation_message}")
-    return confirmation_message # Returns text instead of file path
+    return confirmation_message  # Return text instead of audio file path
