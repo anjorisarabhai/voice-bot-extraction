@@ -1,7 +1,6 @@
 import os
 import sys
 
-# Ensure the system path finds all modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from models.demo_utils import setup_demo_assets, run_asr_on_file, generate_voice_confirmation
@@ -52,7 +51,7 @@ def run_full_voice_demo():
         print(f" Confirmation audio saved to {audio_file}")
         print("\nDEMO COMPLETE. Check the project root for 'demo_output.wav'.")
     else:
-        print(" TTS failed to generate audio.")
+        print(" TTS failed to generate audio or is disabled.")
 
 if __name__ == "__main__":
     run_full_voice_demo()

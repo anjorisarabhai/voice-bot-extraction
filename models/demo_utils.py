@@ -15,8 +15,9 @@ def setup_demo_assets():
     """Load ASR model and processor for local inference, set transliteration flag."""
     global DEMO_ASSETS
     try:
-        DEMO_ASSETS['asr_processor'] = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base")
-        DEMO_ASSETS['asr_model'] = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base")
+        # Fine-tuned ASR model for speech-to-text
+        DEMO_ASSETS['asr_processor'] = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+        DEMO_ASSETS['asr_model'] = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h")
         DEMO_ASSETS['asr_available'] = True
         print(" Hugging Face Wav2Vec2 ASR Model Loaded Locally.")
     except Exception as e:
@@ -26,6 +27,7 @@ def setup_demo_assets():
     DEMO_ASSETS['xlit_engine_available'] = True
     print(" Indic Transliteration Logic Initialized.")
 
+    # TTS disabled now
     DEMO_ASSETS['tts_available'] = False
     print(" TTS functionality disabled due to system download issues.")
 
@@ -49,9 +51,8 @@ def normalize_transcript_names(transcript: str):
 
     return " ".join(normalized_words)
 
-# --- ASR FUNCTION (Using Local Model) ---
+# --- ASR FUNCTION (Using Local Model with Resampling) ---
 def run_asr_on_file(filename: str, assets: dict):
-    """Transcribe audio file locally using wav2vec2 model and processor."""
     if not assets.get('asr_available'):
         return "ERROR: ASR Model not initialized.", 0.0, 0.0, 0.0
 
@@ -66,7 +67,6 @@ def run_asr_on_file(filename: str, assets: dict):
 
     try:
         audio = AudioSegment.from_file(audio_file_path)
-        # Resample to 16000 Hz if necessary
         if audio.frame_rate != 16000:
             audio = audio.set_frame_rate(16000)
         sampling_rate = 16000
@@ -110,6 +110,13 @@ def generate_voice_confirmation(extracted_data_json: dict, assets: dict, output_
         f"Success! The {visit_type} visit with {lead_name} is scheduled for {date}. "
         f"Processing used the {extracted_data_json.get('extraction_method', 'AI')} path."
     )
-
+    
     print(f"Bot Confirmation: {confirmation_message}")
-    return confirmation_message
+
+    if not assets.get('tts_available'):
+        print("TTS functionality is disabled, no audio file generated.")
+        return None
+    
+    # Implement TTS generation here if enabled
+
+    return None
