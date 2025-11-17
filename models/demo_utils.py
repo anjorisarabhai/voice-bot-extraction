@@ -6,6 +6,7 @@ import numpy as np
 from pydub import AudioSegment
 from transformers import WhisperProcessor, WhisperForConditionalGeneration, pipeline
 from indic_transliteration.sanscript import transliterate, ITRANS
+from gtts import gTTS
 
 # --- GLOBAL SETUP DICTIONARY ---
 DEMO_ASSETS = {}
@@ -27,7 +28,7 @@ def setup_demo_assets():
     DEMO_ASSETS['xlit_engine_available'] = True
     print(" Indic Transliteration Logic Initialized.")
 
-    DEMO_ASSETS['tts_available'] = False
+    DEMO_ASSETS['tts_available'] = True
     print(" TTS functionality disabled due to system download issues.")
 
     try:
@@ -131,6 +132,12 @@ def generate_voice_confirmation(extracted_data_json: dict, assets: dict, output_
         print("TTS functionality is disabled, no audio file generated.")
         return None
 
-    # Implement TTS generation here
-
-    return None
+    # Use gTTS to generate audio
+    try:
+        tts = gTTS(confirmation_message, lang='en')
+        tts.save(output_path)
+        print(f"TTS audio saved at {output_path}")
+        return output_path
+    except Exception as e:
+        print(f"Failed to generate TTS audio: {e}")
+        return None
