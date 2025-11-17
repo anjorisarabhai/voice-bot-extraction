@@ -6,13 +6,16 @@ import numpy as np
 from pydub import AudioSegment
 from transformers import WhisperProcessor, WhisperForConditionalGeneration, pipeline
 from indic_transliteration.sanscript import transliterate, ITRANS
-from spellchecker import SpellChecker
 
+# --- GLOBAL SETUP DICTIONARY ---
 DEMO_ASSETS = {}
+
+# --- CORE UTILITIES ---
 
 def setup_demo_assets():
     global DEMO_ASSETS
     try:
+        # ASR
         DEMO_ASSETS['asr_processor'] = WhisperProcessor.from_pretrained("openai/whisper-base")
         DEMO_ASSETS['asr_model'] = WhisperForConditionalGeneration.from_pretrained("openai/whisper-base")
         DEMO_ASSETS['asr_available'] = True
@@ -28,56 +31,47 @@ def setup_demo_assets():
     print(" TTS functionality disabled due to system download issues.")
 
     try:
+        # Load NER pipeline, fine-tune or choose appropriate model as needed
         DEMO_ASSETS['ner_pipeline'] = pipeline("ner", grouped_entities=True)
         print(" NER Pipeline Loaded.")
     except Exception as e:
         print(f" ERROR loading NER pipeline: {e}")
         DEMO_ASSETS['ner_pipeline'] = None
 
-    DEMO_ASSETS['spell_checker'] = SpellChecker()
     return DEMO_ASSETS
 
 def normalize_transcript_names(transcript: str):
     if not DEMO_ASSETS.get('xlit_engine_available'):
         return transcript
 
-    spell = DEMO_ASSETS.get('spell_checker')
     words = transcript.split()
-    corrected_words = []
-
-    # General spelling correction
-    for word in words:
-        if len(word) > 3:
-            try:
-                corrected = spell.correction(word)
-                if corrected is None:
-                    corrected = word
-            except:
-                corrected = word
-            corrected_words.append(corrected)
-        else:
-            corrected_words.append(word)
-    corrected_transcript = " ".join([w if w is not None else '' for w in corrected_words])
+    normalized_words = []
 
     SRC_SCHEME = ITRANS
     TGT_SCHEME = ITRANS
 
-    normalized_words = []
-    for word in corrected_transcript.split():
-        if word and word[0].isupper() and len(word) > 2 and re.match(r'^[A-Za-z]+$', word):
+    for word in words:
+        # Transliterate capitalized words (names)
+        if word[0].isupper() and len(word) > 2 and re.match(r'^[A-Za-z]+$', word):
             try:
                 normalized_word = transliterate(word, SRC_SCHEME, TGT_SCHEME)
-                if normalized_word is None or not isinstance(normalized_word, str):
-                    normalized_word = word
-                if re.match(r'^[A-Za-z\s]+$', normalized_word):
+                if normalized_word and re.match(r'^[A-Za-z\s]+$', normalized_word):
                     normalized_words.append(normalized_word.capitalize())
                     continue
             except Exception:
-                normalized_words.append(word)
-                continue
-        else:
-            normalized_words.append(word if word is not None else '')
-    return " ".join(normalized_words)
+                pass
+        normalized_words.append(word)
+
+    normalized_transcript = " ".join(normalized_words)
+
+    # Use NER to extract names and other entities for correction if NER exists
+    ner = DEMO_ASSETS.get('ner_pipeline')
+    if ner:
+        ner_results = ner(normalized_transcript)
+        # Example: Replace person entity words with confirmed spelling if needed
+        # This can be extended with correction logic or feedback loop
+
+    return normalized_transcript
 
 def run_asr_on_file(filename: str, assets: dict):
     if not assets.get('asr_available'):
@@ -110,9 +104,8 @@ def run_asr_on_file(filename: str, assets: dict):
     try:
         input_features = processor(speech, sampling_rate=sampling_rate, return_tensors="pt").input_features
         generated_ids = model.generate(input_features)
-        transcription_list = processor.batch_decode(generated_ids, skip_special_tokens=True)
-        transcription_list = [t if t is not None else "" for t in transcription_list]
-        transcription = transcription_list[0] if transcription_list else ""
+        transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+
         latency = time.time() - start_time
 
         final_transcript = normalize_transcript_names(transcription)
@@ -138,6 +131,6 @@ def generate_voice_confirmation(extracted_data_json: dict, assets: dict, output_
         print("TTS functionality is disabled, no audio file generated.")
         return None
 
-    # Implement TTS generation here if enabled
+    # Implement TTS generation here
 
     return None
