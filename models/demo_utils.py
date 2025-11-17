@@ -4,7 +4,7 @@ import re
 import torch
 import numpy as np
 from pydub import AudioSegment
-from transformers import WhisperProcessor, WhisperForConditionalGeneration
+from transformers import WhisperProcessor, WhisperForConditionalGeneration, pipeline
 from indic_transliteration.sanscript import transliterate, ITRANS
 
 # --- GLOBAL SETUP DICTIONARY ---
@@ -15,7 +15,7 @@ DEMO_ASSETS = {}
 def setup_demo_assets():
     global DEMO_ASSETS
     try:
-        # Use Whisper base model for ASR
+        # ASR
         DEMO_ASSETS['asr_processor'] = WhisperProcessor.from_pretrained("openai/whisper-base")
         DEMO_ASSETS['asr_model'] = WhisperForConditionalGeneration.from_pretrained("openai/whisper-base")
         DEMO_ASSETS['asr_available'] = True
@@ -24,20 +24,23 @@ def setup_demo_assets():
         print(f" ERROR loading ASR model: {e}")
         DEMO_ASSETS['asr_available'] = False
 
-    # Enable specialized Indic transliteration flag
     DEMO_ASSETS['xlit_engine_available'] = True
     print(" Indic Transliteration Logic Initialized.")
 
     DEMO_ASSETS['tts_available'] = False
     print(" TTS functionality disabled due to system download issues.")
 
+    try:
+        # Load NER pipeline, fine-tune or choose appropriate model as needed
+        DEMO_ASSETS['ner_pipeline'] = pipeline("ner", grouped_entities=True)
+        print(" NER Pipeline Loaded.")
+    except Exception as e:
+        print(f" ERROR loading NER pipeline: {e}")
+        DEMO_ASSETS['ner_pipeline'] = None
+
     return DEMO_ASSETS
 
 def normalize_transcript_names(transcript: str):
-    """
-    Uses indic-transliteration to phonetically normalize capitalized words
-    which are assumed to be Indic-origin names written in Roman script.
-    """
     if not DEMO_ASSETS.get('xlit_engine_available'):
         return transcript
 
@@ -48,7 +51,7 @@ def normalize_transcript_names(transcript: str):
     TGT_SCHEME = ITRANS
 
     for word in words:
-        # Target capitalized words matching alphabet only
+        # Transliterate capitalized words (names)
         if word[0].isupper() and len(word) > 2 and re.match(r'^[A-Za-z]+$', word):
             try:
                 normalized_word = transliterate(word, SRC_SCHEME, TGT_SCHEME)
@@ -57,10 +60,18 @@ def normalize_transcript_names(transcript: str):
                     continue
             except Exception:
                 pass
-
         normalized_words.append(word)
 
-    return " ".join(normalized_words)
+    normalized_transcript = " ".join(normalized_words)
+
+    # Use NER to extract names and other entities for correction if NER exists
+    ner = DEMO_ASSETS.get('ner_pipeline')
+    if ner:
+        ner_results = ner(normalized_transcript)
+        # Example: Replace person entity words with confirmed spelling if needed
+        # This can be extended with correction logic or feedback loop
+
+    return normalized_transcript
 
 def run_asr_on_file(filename: str, assets: dict):
     if not assets.get('asr_available'):
@@ -120,6 +131,6 @@ def generate_voice_confirmation(extracted_data_json: dict, assets: dict, output_
         print("TTS functionality is disabled, no audio file generated.")
         return None
 
-    # Implement TTS generation if enabled
+    # Implement TTS generation here
 
     return None

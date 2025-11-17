@@ -23,3 +23,5 @@ pydub
 ffmpeg
 pyspellchecker
 indic-transliteration
+torch
+transformers
