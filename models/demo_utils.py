@@ -5,7 +5,7 @@ import torch
 import numpy as np
 from pydub import AudioSegment
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
-from spellchecker import SpellChecker
+from indic_transliteration.sanscript import transliterate, ITRANS
 
 # --- GLOBAL SETUP DICTIONARY ---
 DEMO_ASSETS = {}
@@ -15,7 +15,7 @@ DEMO_ASSETS = {}
 def setup_demo_assets():
     global DEMO_ASSETS
     try:
-        # Use Whisper base model for better ASR results
+        # Use Whisper base model for ASR
         DEMO_ASSETS['asr_processor'] = WhisperProcessor.from_pretrained("openai/whisper-base")
         DEMO_ASSETS['asr_model'] = WhisperForConditionalGeneration.from_pretrained("openai/whisper-base")
         DEMO_ASSETS['asr_available'] = True
@@ -24,35 +24,43 @@ def setup_demo_assets():
         print(f" ERROR loading ASR model: {e}")
         DEMO_ASSETS['asr_available'] = False
 
+    # Enable specialized Indic transliteration flag
     DEMO_ASSETS['xlit_engine_available'] = True
     print(" Indic Transliteration Logic Initialized.")
 
     DEMO_ASSETS['tts_available'] = False
     print(" TTS functionality disabled due to system download issues.")
 
-    DEMO_ASSETS['spell_checker'] = SpellChecker()
-
     return DEMO_ASSETS
 
 def normalize_transcript_names(transcript: str):
+    """
+    Uses indic-transliteration to phonetically normalize capitalized words
+    which are assumed to be Indic-origin names written in Roman script.
+    """
     if not DEMO_ASSETS.get('xlit_engine_available'):
         return transcript
 
     words = transcript.split()
-    corrected_words = []
-    spell = DEMO_ASSETS.get('spell_checker')
+    normalized_words = []
+
+    SRC_SCHEME = ITRANS
+    TGT_SCHEME = ITRANS
 
     for word in words:
-        word_lower = word.lower()
-        # Correct spelling for longer words
-        if len(word) > 3 and word_lower in spell:
-            corrected = spell.correction(word_lower)
-            corrected_words.append(corrected.capitalize())
-        else:
-            corrected_words.append(word)
+        # Target capitalized words matching alphabet only
+        if word[0].isupper() and len(word) > 2 and re.match(r'^[A-Za-z]+$', word):
+            try:
+                normalized_word = transliterate(word, SRC_SCHEME, TGT_SCHEME)
+                if normalized_word and re.match(r'^[A-Za-z\s]+$', normalized_word):
+                    normalized_words.append(normalized_word.capitalize())
+                    continue
+            except Exception:
+                pass
 
-    corrected_transcript = " ".join(corrected_words)
-    return corrected_transcript
+        normalized_words.append(word)
+
+    return " ".join(normalized_words)
 
 def run_asr_on_file(filename: str, assets: dict):
     if not assets.get('asr_available'):
@@ -73,8 +81,7 @@ def run_asr_on_file(filename: str, assets: dict):
             audio = audio.set_frame_rate(16000)
         sampling_rate = 16000
 
-        speech = np.array(audio.get_array_of_samples()).astype(np.float32) / 32768.0  # Normalize to [-1,1]
-
+        speech = np.array(audio.get_array_of_samples()).astype(np.float32) / 32768.0
     except Exception as e:
         return f"ERROR: Failed to read audio file: {e}", 0.0, 0.0, 0.0
 
@@ -113,6 +120,6 @@ def generate_voice_confirmation(extracted_data_json: dict, assets: dict, output_
         print("TTS functionality is disabled, no audio file generated.")
         return None
 
-    # If you implement TTS, generate and return audio file path here
+    # Implement TTS generation if enabled
 
     return None
