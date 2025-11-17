@@ -1,12 +1,13 @@
 import os
 import sys
 
+# Ensure the system path finds all modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from models.demo_utils import setup_demo_assets, run_asr_on_file, generate_voice_confirmation
 from main import run_hybrid_extraction_pipeline
 
-TEST_AUDIO_FILENAME = "Voice input.m4a"
+TEST_AUDIO_FILENAME = "Voice_input.m4a"
 TTS_OUTPUT_PATH = os.path.join(os.path.dirname(__file__), "demo_output.wav")
 
 def run_full_voice_demo():

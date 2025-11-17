@@ -2,8 +2,8 @@ import os
 import time
 import re
 import torch
-import soundfile as sf
-
+import numpy as np
+from pydub import AudioSegment
 from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
 
 # --- GLOBAL SETUP DICTIONARY ---
@@ -58,14 +58,25 @@ def run_asr_on_file(filename: str, assets: dict):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     audio_file_path = os.path.normpath(os.path.join(script_dir, os.pardir, "tests", "sample_audio", filename))
 
+    print(f"Resolved audio file path: {audio_file_path}")
+    print(f"File exists: {os.path.exists(audio_file_path)}")
+
     if not os.path.exists(audio_file_path):
         return f"ERROR: File not found at {audio_file_path}", 0.0, 0.0, 0.0
 
     try:
-        speech, sampling_rate = sf.read(audio_file_path)
+        audio = AudioSegment.from_file(audio_file_path)
+        # Resample to 16000 Hz if necessary
+        if audio.frame_rate != 16000:
+            audio = audio.set_frame_rate(16000)
+        sampling_rate = 16000
+
+        speech = np.array(audio.get_array_of_samples()).astype(np.float32)
+        max_val = np.iinfo(audio.array_type).max if np.issubdtype(np.dtype(audio.array_type), np.integer) else 1.0
+        speech /= max_val
         audio_duration = len(speech) / sampling_rate
-    except Exception:
-        audio_duration = 0.0
+    except Exception as e:
+        return f"ERROR: Failed to read audio file: {e}", 0.0, 0.0, 0.0
 
     processor = assets['asr_processor']
     model = assets['asr_model']
@@ -101,4 +112,4 @@ def generate_voice_confirmation(extracted_data_json: dict, assets: dict, output_
     )
 
     print(f"Bot Confirmation: {confirmation_message}")
-    return confirmation_message  # Return text instead of audio file path
+    return confirmation_message

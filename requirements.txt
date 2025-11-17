@@ -19,3 +19,5 @@ huggingface-hub
 #ai4bharat-transliteration
 
 soxr
+pydub
+ffmpeg
