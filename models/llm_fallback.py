@@ -1,21 +1,24 @@
 # models/llm_fallback.py
 import time
-import requests
 import json
 import re
 from datetime import datetime
-from models.schema import VisitDetails # Fine
+from pydantic import ValidationError
+import httpx # Required for asynchronous HTTP calls
+from models.schema import VisitDetails
 from config import MERCURY_API_KEY, MERCURY_API_ENDPOINT
 
+
 # --- Mercury (dLLM) Function (The Production Fallback) ---
-def extract_via_mercury_fallback(transcript: str):
+async def extract_via_mercury_fallback(transcript: str):
     """
     Runs the Mercury dLLM API using the Tool Calling method for structured output.
-    This is the production fallback path.
+    This function is async, essential for FastAPI performance.
     """
     llm_start = time.time()
     current_date = datetime.now().strftime("%Y-%m-%d")
 
+    # --- Tool Definition and Payload Setup ---
     tool_definition = {
         "type": "function",
         "function": {
@@ -49,24 +52,31 @@ def extract_via_mercury_fallback(transcript: str):
     }
 
     try:
-        response = requests.post(MERCURY_API_ENDPOINT, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
+        # CRITICAL FIX: Use httpx.AsyncClient and await the request
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                MERCURY_API_ENDPOINT, headers=headers, json=payload
+            )
+        response.raise_for_status() # Raise error for HTTP error codes
+
         raw_output = response.json()
         
         # 1. Get the raw arguments string
         tool_call_args_str = raw_output['choices'][0]['message']['tool_calls'][0]['function']['arguments']
         
-        # 2. ULTIMATE DEFENSE STEP: Target the specific malformed JSON syntax
+        # 2. ULTIMATE DEFENSE STEP: Target the specific malformed JSON syntax (from previous debugging)
+        # This cleans up the persistent internal spacing/quote error from the API.
         cleaned_args_str = tool_call_args_str.replace(':" "', ':"') 
         cleaned_args_str = re.sub(r',\s*', ',', cleaned_args_str)
         cleaned_args_str = re.sub(r'\s*:\s*', ':', cleaned_args_str)
         
-        # 3. Final Parsing
+        # 3. Final Parsing and Validation
         extracted_json = json.loads(cleaned_args_str)
         result = VisitDetails.model_validate(extracted_json)
         
         latency = time.time() - llm_start
         return result.model_dump(), latency
     
-    except Exception:
-        return None, (time.time() - llm_start)
+    except Exception as e:
+        # Catch all exceptions (network, JSON parsing, validation)
+        raise e # Re-raise the exception so the router can handle it explicitly
