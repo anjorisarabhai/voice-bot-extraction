@@ -26,3 +26,7 @@ indic-transliteration
 torch
 transformers
 gtts
+
+fastapi
+uvicorn[standard] # ASGI server to run FastAPI
+httpx                # Asynchronous HTTP client for API calls
