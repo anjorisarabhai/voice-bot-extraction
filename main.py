@@ -4,9 +4,9 @@ import json
 import os
 import sys
 from datetime import datetime
+import asyncio # <-- CRITICAL FIX: Required for running async functions
 
 # Add the project root to the path for absolute imports
-# This ensures imports like 'from models.nlp_core import ...' work correctly.
 sys.path.append(os.path.dirname(__file__))
 
 # Import core components and settings from the local modules
@@ -20,6 +20,9 @@ from models.schema import VisitDetails
 def run_hybrid_extraction_pipeline(transcript: str):
     """
     The central logic using the fast NLP path with Mercury as the production fallback.
+    
+    NOTE: This synchronous function uses asyncio.run() internally to execute the 
+    asynchronous Mercury API call.
     """
     
     # 1. Attempt FAST PATH (NLP)
@@ -35,8 +38,25 @@ def run_hybrid_extraction_pipeline(transcript: str):
     else:
         # 2. NLP FAILED or Complex Temporal Data Detected -> FALLBACK to Mercury
         
-        # Execute the Mercury Fallback
-        llm_data, llm_latency = extract_via_mercury_fallback(transcript)
+        # --- CRITICAL FIX: Use asyncio.run() to execute the async fallback synchronously ---
+        try:
+            # We pass the coroutine (the async function call) to asyncio.run()
+            # This handles the asynchronous execution within the synchronous loop.
+            llm_data, llm_latency = asyncio.run(
+                extract_via_mercury_fallback(transcript)
+            )
+        except RuntimeError:
+            # Handle the case where the asyncio loop is already running (e.g., in some terminals)
+            loop = asyncio.get_event_loop()
+            llm_data, llm_latency = loop.run_until_complete(
+                extract_via_mercury_fallback(transcript)
+            )
+        except Exception as e:
+            # Handle general API or network failure during the fallback process
+            print(f"MERCURY FALLBACK FAILED CRITICALLY: {e}")
+            llm_data, llm_latency = None, 0.0
+            
+        # --------------------------------------------------------------------------
         
         total_latency = nlp_latency + llm_latency # Total time spent
         method_used = "MERCURY_dLLM"
@@ -75,7 +95,6 @@ if __name__ == "__main__":
     
     if not TEST_CASES:
         print("Aborting benchmark: No test cases loaded. Ensure tests/test_cases.json exists.")
-        # We exit with a non-zero code to indicate failure
         sys.exit(1)
         
     print(f"\n--- Running FINAL {len(TEST_CASES)}-CASE BENCHMARK ---")
@@ -89,7 +108,7 @@ if __name__ == "__main__":
         
         # Log the result
         FINAL_REPORT.append({
-            "Test_ID": test_case.get('id', i + 1), # Use 'id' from JSON or index
+            "Test_ID": test_case.get('id', i + 1),
             "Transcript": transcript,
             "Extraction_Method": metrics["method"],
             "Success": metrics["success"],
@@ -110,7 +129,7 @@ if __name__ == "__main__":
     for entry in FINAL_REPORT:
         data = entry["Data"]
         
-        # --- CRITICAL FIX: Defensive Reporting Check ---
+        # --- Defensive Reporting Check ---
         if data is None:
             # If data is None (LLM failed), use a placeholder for all fields
             row_data = [
@@ -119,7 +138,7 @@ if __name__ == "__main__":
                 str(entry["Success"]),
                 f"{entry['Latency_sec']:.4f}",
                 entry["Transcript"],
-                "API_FAILURE", # Explicitly mark the failure
+                "API_FAILURE", 
                 "N/A", "N/A", "N/A", "N/A", "N/A"
             ]
         else:
