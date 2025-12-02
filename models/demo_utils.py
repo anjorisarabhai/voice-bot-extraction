@@ -54,8 +54,8 @@ def setup_demo_assets():
         DEMO_ASSETS['tts_client'] = elevenlabs_client
         DEMO_ASSETS['tts_available'] = True
         # CRITICAL FIX: Using a universally available Voice ID ('Adam')
-        MATILDA_VOICE_ID = "XrExE9yKIg1WjnnlVkGX" 
-        DEMO_ASSETS['tts_voice'] = ElevenLabsVoice(voice_id=MATILDA_VOICE_ID, name="Matilda") 
+        MONIKA_VOICE_ID = "1qEiC6qsybMkmnNdVMbK" 
+        DEMO_ASSETS['tts_voice'] = ElevenLabsVoice(voice_id=MONIKA_VOICE_ID, name="Monika") 
         print("✅ ElevenLabs TTS Client Initialized.")
     else:
         DEMO_ASSETS['tts_available'] = False
