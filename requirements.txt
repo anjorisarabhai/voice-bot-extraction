@@ -1,32 +1,14 @@
-# requirements.txt
 # --- Core LLM/Hybrid Logic ---
 langchain==0.2.7
 pydantic==2.5.3
 requests
 python-dotenv
 
-# --- Local LLM & Setup (For legacy comparison/local testing) ---
-langchain-community 
-
-# --- ASR, TTS, and Audio Handling ---
-openai-whisper         # For Speech-to-Text (ASR)
-#TTS                    # For Text-to-Speech (TTS)
-torchaudio             # PyTorch utilities for audio processing
-soundfile              # To read and write audio file properties (like duration for latency)
-
-espnet
-huggingface-hub
-#ai4bharat-transliteration
-
-soxr
-pydub
-ffmpeg
-pyspellchecker
-indic-transliteration
-torch
-transformers
-gtts
-
+# --- Asynchronous/FastAPI ---
 fastapi
-uvicorn[standard] # ASGI server to run FastAPI
-httpx                # Asynchronous HTTP client for API calls
+uvicorn[standard]
+httpx
+
+# --- New Voice and Audio Handling ---
+elevenlabs             # Official SDK for TTS (high-quality voice)
+soundfile              # Needed for reading audio files properties
