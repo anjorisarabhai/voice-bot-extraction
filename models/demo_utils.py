@@ -7,7 +7,7 @@ import re
 import numpy as np
 from pydub import AudioSegment 
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
-from indic_transliteration.sanscript import transliterate, ITRANS 
+from indic_transliteration.sanscript import transliterate, ITRANS, DEVANAGARI 
 
 # --- CRITICAL ELEVENLABS IMPORTS ---
 from elevenlabs.client import ElevenLabs 
@@ -28,7 +28,7 @@ DEMO_ASSETS = {}
 # --- CORE UTILITIES ---
 
 def setup_demo_assets():
-    """Initializes clients and checks token availability."""
+    """Initializes clients and checks model availability."""
     
     global DEMO_ASSETS
     
@@ -53,7 +53,8 @@ def setup_demo_assets():
         
         DEMO_ASSETS['tts_client'] = elevenlabs_client
         DEMO_ASSETS['tts_available'] = True
-        # CRITICAL FIX: Using a universally available Voice ID ('Adam')
+        
+        # CRITICAL FIX: Using the specified Monika Voice ID
         MONIKA_VOICE_ID = "1qEiC6qsybMkmnNdVMbK" 
         DEMO_ASSETS['tts_voice'] = ElevenLabsVoice(voice_id=MONIKA_VOICE_ID, name="Monika") 
         print("✅ ElevenLabs TTS Client Initialized.")
@@ -85,7 +86,6 @@ def normalize_transcript_names(transcript: str):
             try:
                 normalized_word = transliterate(word, SRC_SCHEME, TGT_SCHEME)
                 
-                # Check for successful output before appending
                 if normalized_word and re.match(r'^[A-Za-z\s]+$', normalized_word):
                      normalized_words.append(normalized_word.capitalize())
                      continue
