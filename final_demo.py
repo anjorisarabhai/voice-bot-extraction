@@ -3,17 +3,17 @@ import os
 import sys
 import re 
 import time 
-import json # Added for general use
 
 # CRITICAL: Path appending allows modules to be found
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from models.demo_utils import setup_demo_assets, run_asr_on_file, generate_voice_confirmation
 from main import run_hybrid_extraction_pipeline 
+from transformers import pipeline # Needed to initialize NER
 
 # --- CONFIGURATION ---
 TEST_AUDIO_FILENAME = "Voice_input.m4a"
-TTS_OUTPUT_PATH = os.path.join(os.path.dirname(__file__), "demo_output.mp3")
+TTS_OUTPUT_PATH = os.path.join(os.path.dirname(__file__), "demo_output.wav")
 # --- END CONFIGURATION ---
 
 
@@ -26,9 +26,7 @@ def user_feedback_for_names(names_detected):
     print("\n--- 📝 USER CORRECTION REQUIRED ---")
     for name in set(names_detected):
         print(f"Name detected: '{name}'. Enter correct spelling or press Enter to accept (Case Sensitive):")
-        # Use input() to pause the execution and wait for the user
         correction = input().strip()
-        # Ensure the corrected name is used if provided, otherwise use the detected name
         corrections[name] = correction if correction else name
     print("------------------------------------")
     return corrections
@@ -63,17 +61,28 @@ def run_full_voice_demo():
     print(f"✅ Raw ASR Output: \"{transcript}\"")
 
     # 3. INTERACTIVE CORRECTION LOOP (Human-in-the-Loop)
-    ner = assets.get('ner_pipeline')
+    ner_pipeline = assets.get('ner_pipeline')
     names_detected = []
     
-    if ner:
-        # Step A: Detect Person Entities (Names)
-        ner_results = ner(transcript)
-        # Only extract the 'PER' (Person) entities
+    # --- CRITICAL HIL LOGIC ---
+    if ner_pipeline:
+        # A. Attempt to detect names automatically using NER
+        ner_results = ner_pipeline(transcript)
         names_detected = [ent['word'].strip() for ent in ner_results if ent['entity_group'] == 'PER']
         print(f"🟡 NER Detected Names: {names_detected}")
-    else:
-        print("🟡 WARNING: NER Pipeline not loaded. Skipping automatic name detection.")
+    
+    # B. FALLBACK: If NER fails or is unavailable, we manually infer the likely name 
+    # from the ASR output to force the correction loop.
+    if not names_detected:
+         # Crude extraction of the name part (assuming it follows 'with')
+         try:
+             name_part = transcript.split('with ')[-1].split(' on ')[0].strip()
+             if name_part:
+                 names_detected = [name_part.title()]
+                 print(f"🟡 NER Failed. Forcing HIL loop with ASR name: {names_detected}")
+         except Exception:
+             pass # If splitting fails, names_detected remains empty.
+
     
     if names_detected:
         # Step B: Get User Input
@@ -86,7 +95,6 @@ def run_full_voice_demo():
         print(f"✅ Transcript after User Correction: \"{transcript}\" (Correction Time: {correction_time:.2f}s)")
 
     else:
-         # Fallback logic if NER fails but we want to proceed
          print("Proceeding to extraction with Transliterated transcript...")
 
 

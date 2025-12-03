@@ -6,11 +6,16 @@ import warnings
 import re
 import numpy as np
 from pydub import AudioSegment 
-from transformers import WhisperProcessor, WhisperForConditionalGeneration, pipeline # Added pipeline for NER
-from indic_transliteration.sanscript import transliterate, ITRANS, DEVANAGARI # Core Transliteration Logic
+from transformers import WhisperProcessor, WhisperForConditionalGeneration
+from indic_transliteration.sanscript import transliterate, ITRANS, DEVANAGARI 
 
-# Imports from config (Note: ELEVENLABS_API_KEY is not used in this version)
-# from config import ELEVENLABS_API_KEY 
+# --- CRITICAL ELEVENLABS IMPORTS ---
+from elevenlabs.client import ElevenLabs 
+from elevenlabs.types import Voice as ElevenLabsVoice 
+# --- END CRITICAL IMPORTS ---
+
+# Imports from config
+from config import ELEVENLABS_API_KEY 
 
 # --- CONFIGURATION ---
 ASR_MODEL_ID = "openai/whisper-base"
@@ -41,28 +46,31 @@ def setup_demo_assets():
     DEMO_ASSETS['xlit_engine_available'] = True
     print("✅ Indic Transliteration Logic Initialized.")
     
-    # 3. NER Pipeline Setup (CRITICAL for Human-in-the-Loop)
-    try:
-        # Load standard NER pipeline for 'PER' (Person) extraction
-        DEMO_ASSETS['ner_pipeline'] = pipeline("ner", grouped_entities=True)
-        print("✅ NER Pipeline Loaded.")
-    except Exception as e:
-        DEMO_ASSETS['ner_pipeline'] = None
-        print(f"❌ ERROR loading NER pipeline: {e}")
-    
-    # 4. TTS Setup (Reverted to disabled/print mode for stability)
-    DEMO_ASSETS['tts_available'] = False
-    print("❌ TTS functionality disabled (Reverted to text output for stability).")
+    # 3. ElevenLabs TTS Setup
+    if ELEVENLABS_API_KEY and ELEVENLABS_API_KEY != "PLACEHOLDER_FOR_SECURITY_CHECK":
+        # Pass the key directly to the client constructor
+        elevenlabs_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+        
+        DEMO_ASSETS['tts_client'] = elevenlabs_client
+        DEMO_ASSETS['tts_available'] = True
+        
+        # CRITICAL FIX: Using the specified Monika Voice ID
+        MONIKA_VOICE_ID = "1qEiC6qsybMkmnNdVMbK" 
+        DEMO_ASSETS['tts_voice'] = ElevenLabsVoice(voice_id=MONIKA_VOICE_ID, name="Monika") 
+        print("✅ ElevenLabs TTS Client Initialized.")
+    else:
+        DEMO_ASSETS['tts_available'] = False
+        print("❌ ElevenLabs TTS disabled: API key missing or invalid.")
 
     return DEMO_ASSETS
 
 
-# --- TRANSLITERATION FUNCTION (Devanagari Bridge) ---
+# --- TRANSLITERATION FUNCTION ---
 
 def normalize_transcript_names(transcript: str):
     """
     Identifies capitalized words and standardizes their Romanized spelling 
-    using the robust Devanagari bridge conversion.
+    using the indic-transliteration library.
     """
     if not DEMO_ASSETS.get('xlit_engine_available'):
         return transcript
@@ -72,16 +80,11 @@ def normalize_transcript_names(transcript: str):
     
     SRC_SCHEME = ITRANS 
     TGT_SCHEME = ITRANS 
-    DEVANAGARI_SCHEME = DEVANAGARI 
 
     for word in words:
         if word[0].isupper() and len(word) > 2 and re.match(r'^[A-Za-z]+$', word):
             try:
-                # 1. Convert ASR Roman input to unambiguous Devanagari
-                devanagari_word = transliterate(word, SRC_SCHEME, DEVANAGARI_SCHEME)
-                
-                # 2. Convert Devanagari back to standard Romanized spelling
-                normalized_word = transliterate(devanagari_word, DEVANAGARI_SCHEME, TGT_SCHEME)
+                normalized_word = transliterate(word, SRC_SCHEME, TGT_SCHEME)
                 
                 if normalized_word and re.match(r'^[A-Za-z\s]+$', normalized_word):
                      normalized_words.append(normalized_word.capitalize())
@@ -144,14 +147,15 @@ def run_asr_on_file(filename: str, assets: dict):
         return f"ERROR: ASR Local Inference Failed. {e}", latency, len(speech) / sampling_rate, len(speech) / sampling_rate
 
 
-# --- TTS FUNCTION (Reverted to text output) ---
+# --- TTS FUNCTION (ElevenLabs API) ---
 
 def generate_voice_confirmation(extracted_data_json: dict, assets: dict, output_path: str = "demo_output.mp3"):
-    """Generates a text confirmation as TTS functionality is disabled."""
+    """Generates high-quality voice confirmation using the ElevenLabs API."""
     
     if not assets.get('tts_available'):
         print("Warning: TTS functionality is disabled, confirmation printed as text.")
-        
+        return None
+
     lead_name = extracted_data_json.get("lead_name", "the client")
     visit_type = extracted_data_json.get("visit_type", "meeting")
     date = extracted_data_json.get("date", "N/A")
@@ -162,4 +166,30 @@ def generate_voice_confirmation(extracted_data_json: dict, assets: dict, output_
     )
     
     print(f"Bot Confirmation: {confirmation_message}")
-    return confirmation_message
+    
+    try:
+        # Generate audio via ElevenLabs API (returns a generator/stream)
+        audio = assets['tts_client'].generate(
+            text=confirmation_message,
+            voice=assets['tts_voice'],
+            model="eleven_multilingual_v2" 
+        )
+        
+        # --- CRITICAL FIX: CONSOLIDATE AUDIO STREAM ---
+        if isinstance(audio, (bytes, bytearray)):
+            audio_bytes = audio
+        else:
+            # If it's a generator/stream, consolidate the chunks into a single bytes object
+            audio_bytes = b"".join(audio) 
+        # --- END CRITICAL FIX ---
+        
+        # Save the file
+        with open(output_path, 'wb') as f:
+            f.write(audio_bytes)
+            
+        print(f"✅ High-quality audio saved to {output_path}")
+        return output_path
+        
+    except Exception as e:
+        print(f"❌ Failed to generate TTS audio via ElevenLabs API: {e}")
+        return None
