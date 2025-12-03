@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Bot Extraction Demo</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: #f4f7f6; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); }
+        h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        .result-box { margin-top: 20px; padding: 15px; border-radius: 4px; background-color: #ecf0f1; border: 1px solid #bdc3c7; }
+        .status { margin-bottom: 15px; font-weight: bold; }
+        #output { white-space: pre-wrap; font-size: 0.9em; background: #fafafa; padding: 10px; border-radius: 4px; }
+        button { background-color: #2ecc71; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 10px; }
+        button:hover { background-color: #27ae60; }
+        textarea { width: 100%; height: 100px; margin-top: 10px; padding: 10px; box-sizing: border-box; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Voice Bot Extraction Demo (MVP)</h1>
+        <p>This page simulates the end-to-end process: Voice Input → ASR → Correction → FastAPI Extraction.</p>
+
+        <div class="result-box">
+            <h2>1. Voice Input (ASR)</h2>
+            <p>Paste the transcribed output from Whisper/Client ASR below. This simulates the first step of the pipeline.</p>
+            <textarea id="transcript-input" placeholder="e.g., Schedule a business visit with Dr. Patel for tomorrow at 2 PM."></textarea>
+            <button onclick="document.getElementById('correction-box').style.display='block'; document.getElementById('correction-box').scrollIntoView();">Simulate ASR & Detect Names</button>
+        </div>
+
+        <div class="result-box" id="correction-box" style="display:none;">
+            <h2>2. Human Correction (HIL)</h2>
+            <p>Simulate the user correcting the ASR's phonetic errors (e.g., changing 'Anjuri' to 'Anjori').</p>
+            <label for="lead-name-correction">Corrected Lead Name (e.g., Anjori Sarabhai):</label>
+            <input type="text" id="lead-name-correction" placeholder="Enter corrected name here">
+            <button onclick="startExtraction()">Run FastAPI Extraction</button>
+        </div>
+
+        <div class="result-box">
+            <h2>3. FastAPI Extraction Result</h2>
+            <p id="status-message" class="status">Status: Waiting for input...</p>
+            <pre id="output">{}</pre>
+        </div>
+    </div>
+    <script src="client_script.js"></script>
+</body>
+</html>

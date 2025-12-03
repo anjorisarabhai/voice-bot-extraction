@@ -2,26 +2,25 @@
 import re
 import time
 from models.schema import VisitDetails
+from typing import Tuple, Dict, Any, Optional
 
 # Define patterns to trigger fallback (TEMPORAL PATTERNS REMOVED)
-# We only use this now for basic structural checks or future complexity.
-COMPLEX_PATTERNS = [] # <-- Emptied as temporal data is now ignored by LLM anyway
+COMPLEX_PATTERNS = []
 
 # Define action/preposition markers to stop the name extraction
 START_MARKERS = ['with', 'for']
 STOP_MARKERS = ['to', 'regarding', 'for', 'about', 'on', 'at', 'business', 'operation', 'discuss', 'review', 'close', 'account', 'structure']
 
 
-def run_nlp_fast_path(transcript: str):
+def run_nlp_fast_path(transcript: str) -> Tuple[Optional[Dict[str, Any]], float]:
     """
     Runs the fast NLP path using aggressive string indexing. 
-    It will now succeed almost always unless Name/Type are missing.
+    It will succeed if Name/Type are found and no temporal data is in the COMPLEX_PATTERNS list.
     """
     start_time = time.time()
     nlp_output = {field: "N/A" for field in VisitDetails.model_fields.keys()}
     
-    # Note: No temporal checks are needed here anymore, as the LLM is instructed to ignore them.
-    # The fast path will now handle virtually all non-temporal inputs.
+    # Note: The lack of temporal checks means the fast path handles virtually all inputs now.
     
     # 1. Extract Basic Fields (Aggressive Name Capture)
     words = transcript.lower().split()
