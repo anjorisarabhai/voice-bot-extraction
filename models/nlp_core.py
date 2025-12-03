@@ -3,32 +3,27 @@ import re
 import time
 from models.schema import VisitDetails
 
-# Define patterns to trigger fallback (any temporal data)
-COMPLEX_PATTERNS = [
-    r'\b(today|tomorrow|next|day|week|month|year|am|pm|\d{1,2}(:|\s(am|pm)))\b', 
-    r'\d{1,2}(st|nd|rd|th)\b', 
-    r'\d{4}-\d{2}-\d{2}', 
-    r'(end|ending|later|after)\b'
-]
-# Define keywords to help with name extraction
+# Define patterns to trigger fallback (TEMPORAL PATTERNS REMOVED)
+# We only use this now for basic structural checks or future complexity.
+COMPLEX_PATTERNS = [] # <-- Emptied as temporal data is now ignored by LLM anyway
+
+# Define action/preposition markers to stop the name extraction
 START_MARKERS = ['with', 'for']
 STOP_MARKERS = ['to', 'regarding', 'for', 'about', 'on', 'at', 'business', 'operation', 'discuss', 'review', 'close', 'account', 'structure']
 
 
 def run_nlp_fast_path(transcript: str):
     """
-    Runs the fast NLP path using aggressive string indexing.
-    Returns extracted data (dict) and latency (float).
+    Runs the fast NLP path using aggressive string indexing. 
+    It will now succeed almost always unless Name/Type are missing.
     """
     start_time = time.time()
     nlp_output = {field: "N/A" for field in VisitDetails.model_fields.keys()}
     
-    # 1. Check for Complex Patterns (If found, we immediately fail the fast path)
-    for pattern in COMPLEX_PATTERNS:
-        if re.search(pattern, transcript, re.IGNORECASE):
-            return None, (time.time() - start_time) # Fail fast: needs LLM
-            
-    # 2. Extract Basic Fields (Aggressive Name Capture)
+    # Note: No temporal checks are needed here anymore, as the LLM is instructed to ignore them.
+    # The fast path will now handle virtually all non-temporal inputs.
+    
+    # 1. Extract Basic Fields (Aggressive Name Capture)
     words = transcript.lower().split()
     name_candidate = "N/A"
     
@@ -39,17 +34,15 @@ def run_nlp_fast_path(transcript: str):
             
             # Capture words until a defined stop word is reached
             for word in words[start_index:]:
-                # Use a combined list for stop words
                 if word in STOP_MARKERS:
                     break
                 name_words.append(word)
             
             if name_words:
-                # Basic capitalization to handle names
                 name_candidate = ' '.join(name_words).title()
                 break
 
-    # 3. Final Validation Check
+    # 2. Final Validation Check
     visit_type_match = False
     
     if re.search(r'\b(business)\b', transcript, re.IGNORECASE):
@@ -59,11 +52,16 @@ def run_nlp_fast_path(transcript: str):
         nlp_output['visit_type'] = "OPERATION"
         visit_type_match = True
         
-    # Final Success Check: Must have found a name AND a visit type AND not have failed temporal check
+    # Final Success Check: Must have found a name AND a visit type
     if name_candidate != "N/A" and visit_type_match:
         nlp_output['lead_name'] = name_candidate
         nlp_output['title'] = transcript[:40].strip() + "..."
         
+        # Ensure email/phone are N/A as NLP can't extract them
+        nlp_output['email'] = "N/A"
+        nlp_output['phone_number'] = "N/A"
+        
         return nlp_output, (time.time() - start_time)
         
+    # If basic extraction failed (no name or type found), trigger LLM fallback
     return None, (time.time() - start_time)
