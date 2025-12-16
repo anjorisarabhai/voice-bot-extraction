@@ -8,15 +8,16 @@ from typing import Tuple, Dict, Any, Optional
 # --- Regex Definitions for Contact Info ---
 # Simple email pattern (covers most common formats)
 EMAIL_PATTERN = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-# Simple phone pattern (looks for groups of digits, accommodating common separators)
-PHONE_PATTERN = r'(\+\d{1,3})?\s*\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}'
+
+# Robust phone pattern to capture international codes (+), parentheses, and variable digit lengths
+PHONE_PATTERN = r'(\+?\d{1,4}[-.\s]*)?(\(?\d{1,4}\)?[-.\s]*)?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,4}'
 
 # Define patterns to trigger fallback (currently empty, favoring NLP for all simple extraction)
 COMPLEX_PATTERNS = []
 
 # Define action/preposition markers to start the name extraction
 START_MARKERS = ['with', 'for']
-# Final STOP_MARKERS list: Used to cleanly stop name capture before prepositions, numbers, or punctuation
+# STOP_MARKERS list: Used to cleanly stop name capture before punctuation, prepositions, or numbers
 STOP_MARKERS = ['to', 'regarding', 'for', 'about', 'on', 'at', 'business', 
                 'operation', 'discuss', 'review', 'close', 'account', 
                 'structure', '1st', '2nd', '3rd', 'th', 'st', 'nd', 'rd', 
@@ -27,14 +28,19 @@ STOP_MARKERS = ['to', 'regarding', 'for', 'about', 'on', 'at', 'business',
 def run_nlp_fast_path(transcript: str) -> Tuple[Optional[Dict[str, Any]], float]:
     """
     Runs the fast NLP path using aggressive string indexing. 
-    It now includes logic for complex entity extraction (Email/Phone) and transcription cleanup.
+    It includes logic for complex entity extraction (Email/Phone) and comprehensive transcription cleanup.
     """
     start_time = time.time()
     
     # --- TRANSCRIPTION CLEANUP: Convert ASR artifacts to symbols ---
-    # This is critical for robust email/phone extraction via regex
+    
+    # 1. Convert common voice artifacts to symbols for email/general cleanup
     cleaned_transcript = transcript.lower().replace(' at the rate ', '@')
     cleaned_transcript = cleaned_transcript.replace(' dot ', '.')
+    
+    # 2. FINAL FIX: Convert the spoken word "plus" to the symbol "+" for phone numbers
+    cleaned_transcript = cleaned_transcript.replace(' plus ', '+')
+    # Optional: Add common number conversions if ASR struggles with digits (e.g., ' nine one ' -> '91')
     
     nlp_output = {field: "N/A" for field in VisitDetails.model_fields.keys()}
     
@@ -63,18 +69,31 @@ def run_nlp_fast_path(transcript: str) -> Tuple[Optional[Dict[str, Any]], float]
                 name_candidate = re.sub(r'[.,\s]+$', '', raw_name)
                 break
 
-    # 2. Extract Contact Info (NEW LOGIC)
+    # 2. Extract Contact Info
     
-    # Email Extraction: Search the cleaned transcript for the email pattern
+    # Email Extraction
     email_match = re.search(EMAIL_PATTERN, cleaned_transcript)
     if email_match:
         nlp_output['email'] = email_match.group(0)
         
-    # Phone Number Extraction: Search the cleaned transcript for the phone pattern
+    # Phone Number Extraction
     phone_match = re.search(PHONE_PATTERN, cleaned_transcript)
     if phone_match:
-        # Clean the phone number (remove spaces, hyphens, parentheses) for database storage
-        phone_number = re.sub(r'[\s()-]', '', phone_match.group(0))
+        original_match = phone_match.group(0)
+        
+        # Step 1: Clean the phone number (Keep only digits and the + sign)
+        phone_number = re.sub(r'[^0-9+]', '', original_match)
+        
+        # Step 2: Handle leading zero (Trunk Prefix Removal)
+        # If the number starts with '0' AND does NOT start with '+' (country code), remove the '0'.
+        if phone_number.startswith('0') and not phone_number.startswith('+'):
+            phone_number = phone_number[1:]
+            
+        # Step 3 (Final Safety Check): Re-format the '+' to ensure it's at the front
+        if '+' in phone_number:
+            phone_number = phone_number.replace('+', '')
+            phone_number = '+' + phone_number
+            
         nlp_output['phone_number'] = phone_number
 
     # 3. Final Validation Check
