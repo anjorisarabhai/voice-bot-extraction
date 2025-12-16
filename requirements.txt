@@ -12,3 +12,5 @@ httpx
 # --- New Voice and Audio Handling ---
 elevenlabs             # Official SDK for TTS (high-quality voice)
 soundfile              # Needed for reading audio files properties
+
+python-multipart

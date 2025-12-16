@@ -1,11 +1,11 @@
 # api/routers/utility.py
 import time
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
+from fastapi import APIRouter, HTTPException, UploadFile, File
 import httpx 
 from typing import List, Dict, Any, Union
 
 # Import core business logic and schemas
-from api.schemas import TranscriptInput, VisitExtractionResponse, AttendeeSearchResult # Added AttendeeSearchResult
+from api.schemas import TranscriptInput, VisitExtractionResponse, AttendeeSearchResult
 from models.nlp_core import run_nlp_fast_path
 from models.llm_fallback import extract_via_mercury_fallback 
 from models.demo_utils import setup_demo_assets, run_asr_on_bytes, normalize_transcript_names # ASR/Transliteration
@@ -43,6 +43,7 @@ async def transcribe_audio_file(audio_file: UploadFile = File(...)):
         audio_bytes = await audio_file.read()
         
         # Run local ASR and Transliteration (run_asr_on_bytes must be defined in demo_utils)
+        # Note: The function name MUST match the import: run_asr_on_bytes
         transcript, asr_latency, duration, _ = run_asr_on_bytes(audio_bytes, ASR_ASSETS)
 
         if transcript.startswith("ERROR"):
@@ -65,7 +66,6 @@ async def transcribe_audio_file(audio_file: UploadFile = File(...)):
 async def extract_voice_data(input_data: TranscriptInput):
     """
     Receives a transcript and executes the Hybrid Extraction Pipeline.
-    Prioritizes the fast NLP path and falls back to Mercury dLLM for complex inputs.
     """
     transcript = input_data.transcript
     
@@ -73,14 +73,13 @@ async def extract_voice_data(input_data: TranscriptInput):
     nlp_data, nlp_latency = run_nlp_fast_path(transcript)
     
     if nlp_data:
-        # NLP SUCCESS: Return data from the fast path
         total_latency = nlp_latency
         method_used = "NLP_RULES"
         extracted_data = nlp_data
         success = True
         
     else:
-        # 2. FALLBACK to Mercury dLLM for complex data processing (Async Call)
+        # 2. FALLBACK to Mercury dLLM
         try:
             llm_data, llm_latency = await extract_via_mercury_fallback(transcript) 
             
@@ -90,14 +89,12 @@ async def extract_voice_data(input_data: TranscriptInput):
             success = llm_data is not None
         
         except Exception as e:
-            # Re-raise detailed error for debugging
             raise HTTPException(
                 status_code=500, 
                 detail=f"LLM Fallback Service Error: {e.__class__.__name__}: {e}"
             )
 
     if not success:
-        # Final failure if LLM returned None after all attempts
         raise HTTPException(status_code=422, detail="Extraction failed for both NLP and LLM paths.")
 
     # Return the structured response
@@ -116,13 +113,11 @@ async def extract_voice_data(input_data: TranscriptInput):
 @router.get("/search/attendees", response_model=List[AttendeeSearchResult], tags=["Search"])
 async def search_attendees(query: str):
     """
-    Performs real-time, predictive search for attendees based on a partial chunk (query).
-    (Simulates Trigram index search in Python for speed)
+    Performs real-time, predictive search for attendees.
     """
     if not query: return []
     query_lower = query.lower()
     
-    # SIMULATED INDEX SEARCH (Prefix Matching)
     results = [
         AttendeeSearchResult(id=att["id"], full_name=att["name"])
         for att in MOCK_ATTENDEES
@@ -134,15 +129,12 @@ async def search_attendees(query: str):
 @router.post("/search/validate_name", tags=["Search"])
 async def validate_name(payload: Dict[str, Any]):
     """
-    Checks if a full name (extracted via voice) already exists in the system.
-    Returns the user ID or a flag indicating a new contact.
+    Checks if a full name already exists in the system.
     """
     name_to_check = payload.get("lead_name", "").strip().lower()
     
-    # SIMULATED DATABASE LOOKUP
     for att in MOCK_ATTENDEES:
         if att["name"].lower() == name_to_check:
             return {"status": "EXISTS", "user_id": att["id"]}
             
-    # New Contact Decision
     return {"status": "NEW_CONTACT", "user_id": None}

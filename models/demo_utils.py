@@ -1,24 +1,19 @@
 # models/demo_utils.py
 import time
 import os
-import soundfile as sf
 import warnings
 import re
 import numpy as np
 from pydub import AudioSegment 
-from transformers import WhisperProcessor, WhisperForConditionalGeneration
+from transformers import WhisperProcessor, WhisperForConditionalGeneration, pipeline
 from indic_transliteration.sanscript import transliterate, ITRANS, DEVANAGARI 
+import io # NEW: Needed to handle raw audio bytes
 
-# --- CRITICAL ELEVENLABS IMPORTS ---
-from elevenlabs.client import ElevenLabs 
-from elevenlabs.types import Voice as ElevenLabsVoice 
-# --- END CRITICAL IMPORTS ---
-
-# Imports from config
+# Imports from config (Necessary to resolve the previous ImportError)
 from config import ELEVENLABS_API_KEY 
 
 # --- CONFIGURATION ---
-ASR_MODEL_ID = "openai/whisper-base"
+ASR_MODEL_ID = "openai/whisper-large-v3"
 # --- END CONFIGURATION ---
 
 # --- GLOBAL SETUP DICTIONARY ---
@@ -28,7 +23,7 @@ DEMO_ASSETS = {}
 # --- CORE UTILITIES ---
 
 def setup_demo_assets():
-    """Initializes clients and checks model availability."""
+    """Initializes ASR models and checks availability."""
     
     global DEMO_ASSETS
     
@@ -46,21 +41,12 @@ def setup_demo_assets():
     DEMO_ASSETS['xlit_engine_available'] = True
     print("✅ Indic Transliteration Logic Initialized.")
     
-    # 3. ElevenLabs TTS Setup
-    if ELEVENLABS_API_KEY and ELEVENLABS_API_KEY != "PLACEHOLDER_FOR_SECURITY_CHECK":
-        # Pass the key directly to the client constructor
-        elevenlabs_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
-        
-        DEMO_ASSETS['tts_client'] = elevenlabs_client
-        DEMO_ASSETS['tts_available'] = True
-        
-        # CRITICAL FIX: Using the specified Monika Voice ID
-        MONIKA_VOICE_ID = "1qEiC6qsybMkmnNdVMbK" 
-        DEMO_ASSETS['tts_voice'] = ElevenLabsVoice(voice_id=MONIKA_VOICE_ID, name="Monika") 
-        print("✅ ElevenLabs TTS Client Initialized.")
-    else:
-        DEMO_ASSETS['tts_available'] = False
-        print("❌ ElevenLabs TTS disabled: API key missing or invalid.")
+    # 3. NER Pipeline Setup (Placeholder, removed for core ASR stability)
+    DEMO_ASSETS['ner_pipeline'] = None
+    
+    # 4. TTS Setup (Disabled)
+    DEMO_ASSETS['tts_available'] = False
+    print("❌ TTS functionality disabled.")
 
     return DEMO_ASSETS
 
@@ -69,8 +55,7 @@ def setup_demo_assets():
 
 def normalize_transcript_names(transcript: str):
     """
-    Identifies capitalized words and standardizes their Romanized spelling 
-    using the indic-transliteration library.
+    Standardizes Romanized spelling of proper nouns using the Devanagari bridge.
     """
     if not DEMO_ASSETS.get('xlit_engine_available'):
         return transcript
@@ -80,11 +65,13 @@ def normalize_transcript_names(transcript: str):
     
     SRC_SCHEME = ITRANS 
     TGT_SCHEME = ITRANS 
+    DEVANAGARI_SCHEME = DEVANAGARI 
 
     for word in words:
         if word[0].isupper() and len(word) > 2 and re.match(r'^[A-Za-z]+$', word):
             try:
-                normalized_word = transliterate(word, SRC_SCHEME, TGT_SCHEME)
+                devanagari_word = transliterate(word, SRC_SCHEME, DEVANAGARI_SCHEME)
+                normalized_word = transliterate(devanagari_word, DEVANAGARI_SCHEME, TGT_SCHEME)
                 
                 if normalized_word and re.match(r'^[A-Za-z\s]+$', normalized_word):
                      normalized_words.append(normalized_word.capitalize())
@@ -97,65 +84,60 @@ def normalize_transcript_names(transcript: str):
     return " ".join(normalized_words)
 
 
-# --- ASR FUNCTION ---
+# --- ASR FUNCTION (CRITICAL: Handles Bytes Input) ---
 
-def run_asr_on_file(filename: str, assets: dict):
+def run_asr_on_bytes(audio_bytes: bytes, assets: dict):
     """
-    Transcribes audio from a file path using the local Whisper model 
-    and applies Indic Transliteration.
+    Transcribes audio bytes received directly from the FastAPI upload endpoint.
     """
     if not assets.get('asr_available'):
         return "ERROR: ASR Model not initialized.", 0.0, 0.0, 0.0
 
-    # 1. Path construction
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    audio_file_path = os.path.normpath(os.path.join(
-        script_dir, os.pardir, "tests", "sample_audio", filename
-    ))
-
-    if not os.path.exists(audio_file_path):
-        return f"ERROR: File not found at {audio_file_path}", 0.0, 0.0, 0.0
+    start_time = time.time()
     
-    # 2. Audio loading (Requires pydub/ffmpeg setup)
+    # 1. Process Raw Bytes
     try:
-        audio = AudioSegment.from_file(audio_file_path)
+        audio_io = io.BytesIO(audio_bytes)
+        audio = AudioSegment.from_file(audio_io) 
+        
         if audio.frame_rate != 16000:
             audio = audio.set_frame_rate(16000)
-        sampling_rate = 16000
+        
         speech = np.array(audio.get_array_of_samples()).astype(np.float32) / 32768.0
-
+        sampling_rate = 16000
+        audio_duration = len(speech) / sampling_rate
+        
     except Exception as e:
-        return f"ERROR: Failed to read audio file: {e}", 0.0, 0.0, 0.0
+        return f"ERROR: Failed to process audio bytes (pydub/ffmpeg error): {e}", 0.0, 0.0, 0.0
     
     processor = assets['asr_processor']
     model = assets['asr_model']
 
-    start_time = time.time()
     try:
         # ASR Inference
         input_features = processor(speech, sampling_rate=sampling_rate, return_tensors="pt").input_features
         generated_ids = model.generate(input_features)
         transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+        
         latency = time.time() - start_time
         
         # Apply Transliteration
         final_transcript = normalize_transcript_names(transcription)
         
-        return final_transcript, latency, len(speech) / sampling_rate, len(speech) / sampling_rate
+        return final_transcript, latency, audio_duration, audio_duration
     except Exception as e:
         latency = time.time() - start_time
-        return f"ERROR: ASR Local Inference Failed. {e}", latency, len(speech) / sampling_rate, len(speech) / sampling_rate
+        return f"ERROR: ASR Local Inference Failed. {e}", latency, audio_duration, audio_duration
 
 
-# --- TTS FUNCTION (ElevenLabs API) ---
+# --- TTS FUNCTION (Disabled) ---
 
 def generate_voice_confirmation(extracted_data_json: dict, assets: dict, output_path: str = "demo_output.mp3"):
-    """Generates high-quality voice confirmation using the ElevenLabs API."""
+    """Generates a text confirmation as TTS functionality is disabled."""
     
     if not assets.get('tts_available'):
         print("Warning: TTS functionality is disabled, confirmation printed as text.")
-        return None
-
+        
     lead_name = extracted_data_json.get("lead_name", "the client")
     visit_type = extracted_data_json.get("visit_type", "meeting")
     date = extracted_data_json.get("date", "N/A")
@@ -166,30 +148,4 @@ def generate_voice_confirmation(extracted_data_json: dict, assets: dict, output_
     )
     
     print(f"Bot Confirmation: {confirmation_message}")
-    
-    try:
-        # Generate audio via ElevenLabs API (returns a generator/stream)
-        audio = assets['tts_client'].generate(
-            text=confirmation_message,
-            voice=assets['tts_voice'],
-            model="eleven_multilingual_v2" 
-        )
-        
-        # --- CRITICAL FIX: CONSOLIDATE AUDIO STREAM ---
-        if isinstance(audio, (bytes, bytearray)):
-            audio_bytes = audio
-        else:
-            # If it's a generator/stream, consolidate the chunks into a single bytes object
-            audio_bytes = b"".join(audio) 
-        # --- END CRITICAL FIX ---
-        
-        # Save the file
-        with open(output_path, 'wb') as f:
-            f.write(audio_bytes)
-            
-        print(f"✅ High-quality audio saved to {output_path}")
-        return output_path
-        
-    except Exception as e:
-        print(f"❌ Failed to generate TTS audio via ElevenLabs API: {e}")
-        return None
+    return confirmation_message

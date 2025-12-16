@@ -11,7 +11,7 @@ class VisitDetails(BaseModel):
     email: str = Field(description="Extracted email address, if mentioned. Default to 'N/A'.")
     phone_number: str = Field(description="Extracted phone number, if mentioned. Default to 'N/A'.")
 
-# --- Schema for Voice Note Summarization ---
+# --- Schema for Voice Note Summarization (Retained for structure) ---
 class NoteSummary(BaseModel):
     """Schema for summarizing a voice note."""
     lead_name: str = Field(description="The full name of the lead mentioned.")
