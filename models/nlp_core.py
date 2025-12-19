@@ -9,7 +9,9 @@ from typing import Tuple, Dict, Any, Optional
 # Simple email pattern (covers most common formats)
 EMAIL_PATTERN = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
 
-# Robust phone pattern to capture international codes (+), parentheses, and atleast 7 digit length
+# REFINED PHONE PATTERN: 
+# Requires specific segments to ensure it captures 7-10+ digits.
+# This helps prevent short time strings like "1045" from being matched.
 PHONE_PATTERN = r'(\+?\d{1,4}[-.\s]*)?(\(?\d{1,4}\)?[-.\s]*)?\d{3,4}[-.\s]?\d{3,4}[-.\s]?\d{3,4}'
 
 # Define patterns to trigger fallback (currently empty, favoring NLP for all simple extraction)
@@ -38,9 +40,8 @@ def run_nlp_fast_path(transcript: str) -> Tuple[Optional[Dict[str, Any]], float]
     cleaned_transcript = transcript.lower().replace(' at the rate ', '@')
     cleaned_transcript = cleaned_transcript.replace(' dot ', '.')
     
-    # 2. FINAL FIX: Convert the spoken word "plus" to the symbol "+" for phone numbers
+    # 2. Convert the spoken word "plus" to the symbol "+" for phone numbers
     cleaned_transcript = cleaned_transcript.replace(' plus ', '+')
-    # Optional: Add common number conversions if ASR struggles with digits (e.g., ' nine one ' -> '91')
     
     nlp_output = {field: "N/A" for field in VisitDetails.model_fields.keys()}
     
@@ -84,17 +85,22 @@ def run_nlp_fast_path(transcript: str) -> Tuple[Optional[Dict[str, Any]], float]
         # Step 1: Clean the phone number (Keep only digits and the + sign)
         phone_number = re.sub(r'[^0-9+]', '', original_match)
         
-        # Step 2: Handle leading zero (Trunk Prefix Removal)
-        # If the number starts with '0' AND does NOT start with '+' (country code), remove the '0'.
-        if phone_number.startswith('0') and not phone_number.startswith('+'):
-            phone_number = phone_number[1:]
-            
-        # Step 3 (Final Safety Check): Re-format the '+' to ensure it's at the front
-        if '+' in phone_number:
-            phone_number = phone_number.replace('+', '')
-            phone_number = '+' + phone_number
-            
-        nlp_output['phone_number'] = phone_number
+        # --- NEW GUARD: Check digit count to prevent capturing times (e.g., 1045) ---
+        digit_count = sum(c.isdigit() for c in phone_number)
+        
+        if digit_count >= 7:
+            # Step 2: Handle leading zero (Trunk Prefix Removal)
+            if phone_number.startswith('0') and not phone_number.startswith('+'):
+                phone_number = phone_number[1:]
+                
+            # Step 3 (Final Safety Check): Re-format the '+' to ensure it's at the front
+            if '+' in phone_number:
+                phone_number = '+' + phone_number.replace('+', '')
+                
+            nlp_output['phone_number'] = phone_number
+        else:
+            # If it's too short (like "1045"), reset to N/A
+            nlp_output['phone_number'] = "N/A"
 
     # 3. Final Validation Check
     visit_type_match = False
@@ -112,12 +118,10 @@ def run_nlp_fast_path(transcript: str) -> Tuple[Optional[Dict[str, Any]], float]
     if name_candidate != "N/A" and visit_type_match:
         nlp_output['lead_name'] = name_candidate
         
-        # Ensure title is truncated nicely (Use original transcript for title)
+        # Ensure title is truncated nicely
         nlp_output['title'] = transcript[:40].strip() + "..."
-        
-        # Email and phone numbers were populated above, or they remain 'N/A'
         
         return nlp_output, (time.time() - start_time)
         
-    # If basic extraction failed (no name or type found), trigger LLM fallback
+    # If basic extraction failed, trigger LLM fallback
     return None, (time.time() - start_time)
