@@ -45,9 +45,19 @@ function startTranscription() {
         return response.json();
     })
     .then(data => {
+        // --- ASR Latency Logging and Display ---
+        
+        // 1. CONSOLE LOG (DEBUG): This is what you requested!
+        console.log('ASR RESPONSE (with Latency):', data); 
+        
+        // 2. Format latency for display
+        const asrLatencyMs = (data.asr_latency * 1000).toFixed(2); // Convert to ms
+        
         FINAL_TRANSCRIPT_TEXT = data.transcript;
         transcriptOutput.textContent = FINAL_TRANSCRIPT_TEXT;
-        statusMessage.textContent = `Status: Transcription Complete. Latency: ${data.asr_latency.toFixed(2)}s`;
+        
+        // 3. Update Status Message
+        statusMessage.textContent = `Status: Transcription Complete. ASR Latency: ${asrLatencyMs} ms`;
         statusMessage.style.color = '#2ecc71';
         
         // Show correction box for HIL
@@ -77,10 +87,13 @@ async function startExtraction() {
 
     // Simulate Human-in-the-Loop Correction
     if (correctedName) {
+        // Note: The name replacement logic is highly dependent on transcript format.
+        // This is the simplified regex based on the demo transcript structure.
         const regex = /(with|for)\s+([A-Z][a-z]+(\s+[A-Z][a-z]+)*)/i;
         if (regex.test(finalTranscript)) {
             finalTranscript = finalTranscript.replace(regex, `$1 ${correctedName}`);
         } else {
+             // Fallback: prepend the corrected name if no suitable pattern found
              finalTranscript = `Schedule a visit with ${correctedName} ${FINAL_TRANSCRIPT_TEXT}`;
         }
     }
@@ -107,6 +120,10 @@ async function startExtraction() {
         let extractionResponse = await response.json();
         let extractedData = extractionResponse.data;
         const extractedLeadName = extractedData.lead_name;
+        
+        // --- Console Log for Extraction Data ---
+        console.log('Extraction Response Data:', extractionResponse);
+        // ---------------------------------------
 
         // 2. CALL VALIDATION ENDPOINT
         statusMessage.textContent = `Status: Extraction complete. Validating lead name: ${extractedLeadName}...`;
@@ -131,14 +148,14 @@ async function startExtraction() {
             // CRITICAL HIL STEP: Prompt for missing data
             extractedData.validation_status = "NEW_CONTACT_REQUIRED";
             extractedData.h_i_l_prompt = "Name not found in CRM. Please provide Email and Phone Number.";
-            statusMessage.textContent = `Status: SUCCESS! METHOD: ${extractionResponse.method} - HIL PROMPT NEEDED. (API Time: ${latency}s)`;
+            statusMessage.textContent = `Status: SUCCESS! METHOD: ${extractionResponse.METHOD} - HIL PROMPT NEEDED. (API Time: ${latency}s)`;
             statusMessage.style.color = '#e67e22'; // Orange for HIL required
             
         } else {
             // Contact Exists - Final Success
             extractedData.validation_status = "CONTACT_EXISTS";
             extractedData.user_id = validationResult.user_id;
-            statusMessage.textContent = `Status: SUCCESS! METHOD: ${extractionResponse.method} (API Time: ${latency}s)`;
+            statusMessage.textContent = `Status: SUCCESS! METHOD: ${extractionResponse.METHOD} (API Time: ${latency}s)`;
             statusMessage.style.color = '#2ecc71';
         }
 

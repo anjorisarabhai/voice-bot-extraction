@@ -26,14 +26,14 @@ ASR_ASSETS = setup_demo_assets()
 
 
 # ==========================================================
-# 1. NEW: AUDIO UPLOAD AND TRANSCRIPTION ENDPOINT
+# 1. AUDIO UPLOAD AND TRANSCRIPTION ENDPOINT
 # ==========================================================
 
 @router.post("/transcribe-audio")
 async def transcribe_audio_file(audio_file: UploadFile = File(...)):
     """
     Receives raw audio data, runs local Whisper ASR and Indic Transliteration, 
-    and returns the clean text transcript.
+    and returns the clean text transcript, latency, and duration.
     """
     if not ASR_ASSETS.get('asr_available'):
         raise HTTPException(status_code=503, detail="ASR Service is not loaded on the backend. Check model download.")
@@ -42,16 +42,17 @@ async def transcribe_audio_file(audio_file: UploadFile = File(...)):
         # Read the audio file bytes asynchronously
         audio_bytes = await audio_file.read()
         
-        # Run local ASR and Transliteration (run_asr_on_bytes must be defined in demo_utils)
+        # Run local ASR and Transliteration (latency and duration are calculated inside run_asr_on_bytes)
         # Note: The function name MUST match the import: run_asr_on_bytes
         transcript, asr_latency, duration, _ = run_asr_on_bytes(audio_bytes, ASR_ASSETS)
 
         if transcript.startswith("ERROR"):
             raise HTTPException(status_code=500, detail=transcript)
             
+        # The latency is now correctly returned to the frontend
         return {
             "transcript": transcript,
-            "asr_latency": asr_latency,
+            "asr_latency": round(asr_latency * 1000, 2), # Returning latency in milliseconds for readability
             "duration": duration
         }
     except Exception as e:
@@ -96,6 +97,23 @@ async def extract_voice_data(input_data: TranscriptInput):
 
     if not success:
         raise HTTPException(status_code=422, detail="Extraction failed for both NLP and LLM paths.")
+
+    # --- HIL Validation (CRM Check) ---
+    lead_name = extracted_data.get("lead_name", "").strip()
+    validation_status = "N/A"
+    h_i_l_prompt = ""
+    
+    if lead_name:
+        if any(att["name"].lower() == lead_name.lower() for att in MOCK_ATTENDEES):
+            validation_status = "EXISTS"
+            h_i_l_prompt = f"Welcome back, {lead_name}! Details loaded from CRM."
+        else:
+            validation_status = "NEW_CONTACT_REQUIRED"
+            h_i_l_prompt = "Name not found in CRM. Please provide Email and Phone Number."
+
+    # Final result compilation
+    extracted_data["validation_status"] = validation_status
+    extracted_data["h_i_l_prompt"] = h_i_l_prompt
 
     # Return the structured response
     return VisitExtractionResponse(

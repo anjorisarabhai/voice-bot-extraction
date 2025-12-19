@@ -9,8 +9,8 @@ from typing import Tuple, Dict, Any, Optional
 # Simple email pattern (covers most common formats)
 EMAIL_PATTERN = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
 
-# Robust phone pattern to capture international codes (+), parentheses, and variable digit lengths
-PHONE_PATTERN = r'(\+?\d{1,4}[-.\s]*)?(\(?\d{1,4}\)?[-.\s]*)?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,4}'
+# Robust phone pattern to capture international codes (+), parentheses, and atleast 7 digit length
+PHONE_PATTERN = r'(\+?\d{1,4}[-.\s]*)?(\(?\d{1,4}\)?[-.\s]*)?\d{3,4}[-.\s]?\d{3,4}[-.\s]?\d{3,4}'
 
 # Define patterns to trigger fallback (currently empty, favoring NLP for all simple extraction)
 COMPLEX_PATTERNS = []
